@@ -8,3 +8,4 @@ $t = spawn {
 };
 x = 2; // Data race!
 join $t;
+assert(x == 2);

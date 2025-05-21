@@ -16,7 +16,7 @@ cmake -G Ninja .. -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Debug
 ninja
 ```
 
-If you need, set the C standard with ` -DCMAKE_CXX_STANDARD=20`.
+If you need, set the C standard with `-DCMAKE_CXX_STANDARD=20`.
 If you are running a recent version of CMake, you may need
 `-DCMAKE_POLICY_VERSION_MINIMUM=3.5`.
 
