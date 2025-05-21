@@ -1,0 +1,10 @@
+nop;
+x = 0;
+$t = spawn {
+    lock l1;
+    $r = 1;
+    x = $r;
+    unlock l1;
+};
+x = 2; // Data race!
+join $t;
