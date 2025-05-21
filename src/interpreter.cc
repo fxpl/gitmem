@@ -1,4 +1,5 @@
 #include <trieste/trieste.h>
+#include <random>
 #include "lang.hh"
 
 namespace gitmem
@@ -6,9 +7,18 @@ namespace gitmem
     using namespace trieste;
     using Locals = std::unordered_map<std::string, size_t>;
 
+    struct Global {
+        size_t val;
+        std::optional<size_t> commit;
+        std::vector<size_t> history;
+    };
+
+    using Globals = std::unordered_map<std::string, Global>;
+
     struct Context
     {
         Locals locals;
+        Globals globals;
     };
 
     struct Thread
@@ -26,6 +36,24 @@ namespace gitmem
         return s == Join || s == Lock || s == Unlock;
     }
 
+    void commit(Context &ctx) {
+        for (auto& [var, global] : ctx.globals) {
+            if (global.commit) {
+                std::cout << "Committing global '" << var << "' with id " << global.commit.value() << std::endl;
+                global.history.push_back(global.commit.value());
+                global.commit.reset();
+            }
+        }
+    }
+
+    // an incrementing static counter would probably be fine
+    size_t get_uuid() {
+        static std::random_device rd;
+        static std::mt19937 gen(rd());
+        std::uniform_int_distribution<size_t> dist(0, (size_t)-1);
+        return dist(gen);
+    }
+
     size_t evaluate_expression(Node expr, Context &ctx)
     {
         auto e = expr / Expr;
@@ -35,8 +63,7 @@ namespace gitmem
         }
         else if (e == Var)
         {
-            std::cout << "Global variables not implemented yet" << std::endl;
-            return 0;
+            return ctx.globals[std::string(expr->location().view())].val;
         }
         else if (e == Const)
         {
@@ -44,6 +71,7 @@ namespace gitmem
         }
         else if (e == Spawn)
         {
+            commit(ctx);
             std::cout << "Spawn not implemented yet" << std::endl;
             return 0;
         }
@@ -80,7 +108,10 @@ namespace gitmem
             }
             else if (lhs == Var)
             {
-                std::cout << "Global variables not implemented yet" << std::endl;
+                auto &global = ctx.globals[var];
+                global.val = val;
+                global.commit = get_uuid();
+                std::cout << "Setting global '" << lhs->location().view() << "' to " << val <<  " with id " << *(global.commit) << std::endl;
             }
             else
             {

@@ -1,0 +1,5 @@
+nop;
+x = 0;
+x = 2;
+y = 2;
+assert(x == y)
