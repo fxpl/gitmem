@@ -15,7 +15,7 @@ namespace gitmem
 
     using Globals = std::unordered_map<std::string, Global>;
 
-    struct Context
+    struct ThreadContext
     {
         Locals locals;
         Globals globals;
@@ -23,12 +23,17 @@ namespace gitmem
 
     struct Thread
     {
-        Context ctx;
+        ThreadContext ctx;
         Node block;
         size_t pc = 0;
+        bool completed = false;
     };
 
-    using Threads = std::vector<Thread>;
+    using Threads = std::vector<std::shared_ptr<Thread>>;
+
+    struct GlobalContext {
+        Threads threads;
+    };
 
     bool is_syncing(Node stmt)
     {
@@ -36,7 +41,7 @@ namespace gitmem
         return s == Join || s == Lock || s == Unlock;
     }
 
-    void commit(Context &ctx) {
+    void commit(ThreadContext &ctx) {
         for (auto& [var, global] : ctx.globals) {
             if (global.commit) {
                 std::cout << "Committing global '" << var << "' with id " << global.commit.value() << std::endl;
@@ -54,7 +59,7 @@ namespace gitmem
         return dist(gen);
     }
 
-    size_t evaluate_expression(Node expr, Context &ctx)
+    size_t evaluate_expression(Node expr, ThreadContext &ctx, GlobalContext &gctx)
     {
         auto e = expr / Expr;
         if (e == Reg)
@@ -72,14 +77,15 @@ namespace gitmem
         else if (e == Spawn)
         {
             commit(ctx);
-            std::cout << "Spawn not implemented yet" << std::endl;
-            return 0;
+            ThreadContext new_ctx = { Locals(), ctx.globals };
+            gctx.threads.push_back(std::make_shared<Thread>(new_ctx, e / Block));
+            return gctx.threads.size() - 1;
         }
         else if (e == Eq)
         {
             auto lhs = e / Lhs;
             auto rhs = e / Rhs;
-            return evaluate_expression(lhs, ctx) == evaluate_expression(rhs, ctx);
+            return evaluate_expression(lhs, ctx, gctx) == evaluate_expression(rhs, ctx, gctx);
         }
         else
         {
@@ -88,7 +94,7 @@ namespace gitmem
         }
     }
 
-    void run_statement(Node stmt, Context &ctx)
+    void run_statement(Node stmt, ThreadContext &ctx, GlobalContext &gctx)
     {
         auto s = stmt / Stmt;
         if (s == Nop)
@@ -100,7 +106,7 @@ namespace gitmem
             auto lhs = s / LVal;
             auto var = std::string(lhs->location().view());
             auto rhs = s / Expr;
-            auto val = evaluate_expression(rhs, ctx);
+            auto val = evaluate_expression(rhs, ctx, gctx);
             if (lhs == Reg)
             {
                 std::cout << "Setting register '" << lhs->location().view() << "' to " << val << std::endl;
@@ -133,7 +139,7 @@ namespace gitmem
         else if (s == Assert)
         {
             auto expr = s / Expr;
-            auto result = evaluate_expression(expr, ctx);
+            auto result = evaluate_expression(expr, ctx, gctx);
             if (!result)
             {
                 std::cout << "Assertion failed: " << expr->location().view() << std::endl;
@@ -149,43 +155,49 @@ namespace gitmem
         }
     }
 
-    void run_thread_to_sync(Thread &thread)
+    void run_thread_to_sync(GlobalContext &gctx, std::shared_ptr<Thread> thread)
     {
-        Node block = thread.block;
-        size_t &pc = thread.pc;
-        Context &ctx = thread.ctx;
+        Node block = thread->block;
+        size_t &pc = thread->pc;
+        ThreadContext &ctx = thread->ctx;
         while (pc < block->size())
         {
             Node stmt = block->at(pc);
             if (is_syncing(stmt)) return;
 
-            run_statement(stmt, ctx);
+            run_statement(stmt, ctx, gctx);
             pc++;
         }
+
+        thread->completed = true;
     }
 
-    void run_threads_to_sync(Threads &threads)
+    bool run_threads_to_sync(GlobalContext &gctx)
     {
-        for (size_t i = 0; i < threads.size(); i++)
-        {
-            Thread &thread = threads[i];
-            run_thread_to_sync(thread);
+        bool all_completed = true;
+        for (size_t i = 0; i < gctx.threads.size(); ++i) {
+            run_thread_to_sync(gctx, gctx.threads[i]);
+            all_completed &= gctx.threads[i]->completed;
+            // if a thread spawns a new thread, it will end up at the end so
+            // we will always include the new threads in the termination
+            // criteria
         }
+        return all_completed;
     }
 
-    void run_threads(Threads &threads)
+    void run_threads(GlobalContext &gctx)
     {
-        run_threads_to_sync(threads);
-        // TODO: Set up multiverses
+        while (!run_threads_to_sync(gctx)) {}
     }
 
     void interpret(const Node ast)
     {
         Node starting_block = ast / File / Block;
-        Context starting_ctx = {};
-        Thread main_thread = {starting_ctx, starting_block};
-        Threads threads = {main_thread};
+        ThreadContext starting_ctx = {};
+        auto main_thread = std::make_shared<Thread>(starting_ctx, starting_block);
+
         // TODO: Set up global context
-        run_threads(threads);
+        GlobalContext gctx {{main_thread}};
+        run_threads(gctx);
     }
 }

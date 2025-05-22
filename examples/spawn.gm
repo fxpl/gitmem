@@ -1,0 +1,4 @@
+x = 2;
+y = 2;
+$t = spawn { nop; };
+assert(x == y)
