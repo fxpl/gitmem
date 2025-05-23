@@ -43,12 +43,58 @@ namespace gitmem
 
     void commit(ThreadContext &ctx) {
         for (auto& [var, global] : ctx.globals) {
-            if (global.commit) {
+            if (global.commit)
+            {
                 std::cout << "Committing global '" << var << "' with id " << global.commit.value() << std::endl;
                 global.history.push_back(global.commit.value());
                 global.commit.reset();
             }
         }
+    }
+
+    bool conflict(std::vector<size_t>& h1, std::vector<size_t>& h2)
+    {
+        size_t length = std::min(h1.size(), h2.size());
+
+        bool conflict = false;
+        for (size_t i = 0; i < length && !conflict; ++i)
+        {
+            std::cout << h1[i] << " = "  << h2[i] << std::endl;
+            conflict |= (h1[i] != h2[i]);
+        }
+
+        return conflict;
+    }
+
+    // The changes from source are pulled into destination
+    bool pull(ThreadContext &dst, ThreadContext &src) {
+        std::cout << "Pull" << std::endl;
+
+        for (auto& [var, global] : src.globals) {
+            std::cout << var << std::endl;
+            if (dst.globals.contains(var))
+            {
+                auto& src_var = src.globals[var];
+                auto& dst_var = dst.globals[var];
+                if (conflict(src_var.history, dst_var.history))
+                {
+                    std::cout << "Data race" << std::endl;
+                    return false;
+                }
+                else if (src_var.history.size() > dst_var.history.size())
+                {
+                    std::cout << "Fast-forwards '" << var << "' to " << src_var.val << " with id " << *(src_var.history.end() - 1) << std::endl;
+                    dst_var.val = src_var.val;
+                    dst_var.history = src_var.history;
+                }
+            }
+            else
+            {
+                dst.globals[var].val = src.globals[var].val;
+                dst.globals[var].history = src.globals[var].history;
+            }
+        }
+        return true;
     }
 
     // an incrementing static counter would probably be fine
@@ -126,7 +172,21 @@ namespace gitmem
         }
         else if (s == Join)
         {
-            std::cout << "Join not implemented yet" << std::endl;
+            auto expr = s / Expr;
+            auto result = evaluate_expression(expr, ctx, gctx);
+
+            auto& thread = gctx.threads[result];
+            if (thread->completed)
+            {
+                commit(ctx);
+                commit(thread->ctx);
+                pull(ctx, thread->ctx);
+                std::cout << "Non-blocking Join not implemented yet" << std::endl;
+            }
+            else
+            {
+                std::cout << "Blocking Join not implemented yet" << std::endl;
+            }
         }
         else if (s == Lock)
         {
@@ -160,13 +220,16 @@ namespace gitmem
         Node block = thread->block;
         size_t &pc = thread->pc;
         ThreadContext &ctx = thread->ctx;
+        bool first = true;
+
         while (pc < block->size())
         {
             Node stmt = block->at(pc);
-            if (is_syncing(stmt)) return;
+            if (!first && is_syncing(stmt)) return;
 
             run_statement(stmt, ctx, gctx);
             pc++;
+            first = false;
         }
 
         thread->completed = true;

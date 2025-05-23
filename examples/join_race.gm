@@ -1,0 +1,4 @@
+x = 2;
+$t = spawn { x = 3; };
+x = 4;
+join $t
