@@ -25,6 +25,7 @@ namespace gitmem
     {
         ThreadContext ctx;
         Node block;
+        size_t id;
         size_t pc = 0;
         bool completed = false;
     };
@@ -97,12 +98,9 @@ namespace gitmem
         return true;
     }
 
-    // an incrementing static counter would probably be fine
     size_t get_uuid() {
-        static std::random_device rd;
-        static std::mt19937 gen(rd());
-        std::uniform_int_distribution<size_t> dist(0, (size_t)-1);
-        return dist(gen);
+        static size_t uuid = 0;
+        return uuid++;
     }
 
     size_t evaluate_expression(Node expr, ThreadContext &ctx, GlobalContext &gctx)
@@ -140,7 +138,7 @@ namespace gitmem
         }
     }
 
-    void run_statement(Node stmt, ThreadContext &ctx, GlobalContext &gctx)
+    bool run_statement(Node stmt, ThreadContext &ctx, GlobalContext &gctx)
     {
         auto s = stmt / Stmt;
         if (s == Nop)
@@ -181,11 +179,12 @@ namespace gitmem
                 commit(ctx);
                 commit(thread->ctx);
                 pull(ctx, thread->ctx);
-                std::cout << "Non-blocking Join not implemented yet" << std::endl;
             }
             else
             {
-                std::cout << "Blocking Join not implemented yet" << std::endl;
+                // The thread to join on is incomplete so we have to stop
+                std::cout << "Waiting on thread " << result << std::endl;
+                return false;
             }
         }
         else if (s == Lock)
@@ -213,10 +212,15 @@ namespace gitmem
         {
             std::cout << "Unknown statement: " << stmt->type() << std::endl;
         }
+        return true;
     }
 
-    void run_thread_to_sync(GlobalContext &gctx, std::shared_ptr<Thread> thread)
+    // Add a descriptive return value
+    bool run_thread_to_sync(GlobalContext &gctx, std::shared_ptr<Thread> thread)
     {
+        if (thread->completed)
+            return false;
+
         Node block = thread->block;
         size_t &pc = thread->pc;
         ThreadContext &ctx = thread->ctx;
@@ -225,32 +229,42 @@ namespace gitmem
         while (pc < block->size())
         {
             Node stmt = block->at(pc);
-            if (!first && is_syncing(stmt)) return;
+            if (!first && is_syncing(stmt))
+                return first;
 
-            run_statement(stmt, ctx, gctx);
+            if (!run_statement(stmt, ctx, gctx))
+                return false;
+
             pc++;
             first = false;
         }
 
         thread->completed = true;
+        return true;
     }
 
     bool run_threads_to_sync(GlobalContext &gctx)
     {
         bool all_completed = true;
+        bool stuck = true;
         for (size_t i = 0; i < gctx.threads.size(); ++i) {
-            run_thread_to_sync(gctx, gctx.threads[i]);
+            stuck &= !run_thread_to_sync(gctx, gctx.threads[i]);
             all_completed &= gctx.threads[i]->completed;
             // if a thread spawns a new thread, it will end up at the end so
             // we will always include the new threads in the termination
             // criteria
         }
-        return all_completed;
+
+        if (stuck)
+            std::cout << "Deadlock" << std::endl;
+        return stuck || all_completed;
     }
 
     void run_threads(GlobalContext &gctx)
     {
-        while (!run_threads_to_sync(gctx)) {}
+        while (!run_threads_to_sync(gctx)) {
+            std::cout << "-----------------------" << std::endl;
+        }
     }
 
     void interpret(const Node ast)
