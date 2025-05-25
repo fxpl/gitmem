@@ -1,0 +1,9 @@
+lock l1;
+$t1 = spawn {
+    lock l1;
+    assert(x == 1);
+    unlock l1;
+};
+x = 1;
+unlock l1;
+join $t1;
