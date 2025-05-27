@@ -15,6 +15,13 @@ namespace gitmem
 
     using Globals = std::unordered_map<std::string, Global>;
 
+    struct Lock {
+        bool locked;
+        Globals globals;
+    };
+
+    using Lock = gitmem::Lock;
+
     struct ThreadContext
     {
         Locals locals;
@@ -31,9 +38,11 @@ namespace gitmem
     };
 
     using Threads = std::vector<std::shared_ptr<Thread>>;
+    using Locks = std::vector<std::shared_ptr<Lock>>;
 
     struct GlobalContext {
         Threads threads;
+        Locks locks;
     };
 
     bool is_syncing(Node stmt)
