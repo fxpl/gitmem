@@ -15,30 +15,37 @@ namespace gitmem
 
     using Globals = std::unordered_map<std::string, Global>;
 
-    struct Lock {
-        bool locked;
-        Globals globals;
+    enum class ThreadStatus {
+        executing,
+        conflicted,
+        completed,
     };
-
-    using Lock = gitmem::Lock;
 
     struct ThreadContext
     {
         Locals locals;
         Globals globals;
+        ThreadStatus status = ThreadStatus::executing;
     };
+
+    using ThreadID = size_t;
 
     struct Thread
     {
         ThreadContext ctx;
         Node block;
-        size_t id;
+        ThreadID id;
         size_t pc = 0;
-        bool completed = false;
     };
 
     using Threads = std::vector<std::shared_ptr<Thread>>;
-    using Locks = std::vector<std::shared_ptr<Lock>>;
+
+    struct Lock {
+        Globals globals;
+        std::optional<ThreadID> owner;
+    };
+
+    using Locks = std::unordered_map<std::string, struct Lock>;
 
     struct GlobalContext {
         Threads threads;
@@ -51,8 +58,8 @@ namespace gitmem
         return s == Join || s == Lock || s == Unlock;
     }
 
-    void commit(ThreadContext &ctx) {
-        for (auto& [var, global] : ctx.globals) {
+    void commit(Globals &globals) {
+        for (auto& [var, global] : globals) {
             if (global.commit)
             {
                 std::cout << "Committing global '" << var << "' with id " << global.commit.value() << std::endl;
@@ -77,15 +84,15 @@ namespace gitmem
     }
 
     // The changes from source are pulled into destination
-    bool pull(ThreadContext &dst, ThreadContext &src) {
+    bool pull(Globals &dst, Globals &src) {
         std::cout << "Pull" << std::endl;
 
-        for (auto& [var, global] : src.globals) {
+        for (auto& [var, global] : src) {
             std::cout << var << std::endl;
-            if (dst.globals.contains(var))
+            if (dst.contains(var))
             {
-                auto& src_var = src.globals[var];
-                auto& dst_var = dst.globals[var];
+                auto& src_var = src[var];
+                auto& dst_var = dst[var];
                 if (conflict(src_var.history, dst_var.history))
                 {
                     std::cout << "Data race" << std::endl;
@@ -100,8 +107,8 @@ namespace gitmem
             }
             else
             {
-                dst.globals[var].val = src.globals[var].val;
-                dst.globals[var].history = src.globals[var].history;
+                dst[var].val = src[var].val;
+                dst[var].history = src[var].history;
             }
         }
         return true;
@@ -129,10 +136,11 @@ namespace gitmem
         }
         else if (e == Spawn)
         {
-            commit(ctx);
+            commit(ctx.globals);
+            ThreadID tid = gctx.threads.size();
             ThreadContext new_ctx = { Locals(), ctx.globals };
-            gctx.threads.push_back(std::make_shared<Thread>(new_ctx, e / Block));
-            return gctx.threads.size() - 1;
+            gctx.threads.push_back(std::make_shared<Thread>(new_ctx, e / Block, tid));
+            return tid;
         }
         else if (e == Eq)
         {
@@ -147,7 +155,14 @@ namespace gitmem
         }
     }
 
-    bool run_statement(Node stmt, ThreadContext &ctx, GlobalContext &gctx)
+    enum class RunResult
+    {
+        progress,
+        stuck,
+        conflict,
+    };
+
+    bool run_statement(Node stmt, const ThreadID& tid, ThreadContext &ctx, GlobalContext &gctx)
     {
         auto s = stmt / Stmt;
         if (s == Nop)
@@ -183,25 +198,42 @@ namespace gitmem
             auto result = evaluate_expression(expr, ctx, gctx);
 
             auto& thread = gctx.threads[result];
-            if (thread->completed)
+            if (thread->ctx.status == ThreadStatus::completed)
             {
-                commit(ctx);
-                commit(thread->ctx);
-                pull(ctx, thread->ctx);
+                commit(ctx.globals);
+                commit(thread->ctx.globals);
+                if(!pull(ctx.globals, thread->ctx.globals))
+                {
+                    ctx.status = ThreadStatus::conflicted;
+                    return true;
+                }
             }
             else
             {
                 // The thread to join on is incomplete so we have to stop
                 std::cout << "Waiting on thread " << result << std::endl;
-                return false;
             }
         }
         else if (s == Lock)
         {
-            std::cout << "Lock not implemented yet" << std::endl;
+            auto var = std::string(s->location().view());
+
+            auto& lock = gctx.locks[var];
+            if (lock.owner) {
+                return false;
+            }
+
+            lock.owner = tid;
+            commit(ctx.globals);
+            if (!pull(ctx.globals, lock.globals))
+            {
+                ctx.status = ThreadStatus::conflicted;
+                return true;
+            }
         }
         else if (s == Unlock)
         {
+            commit(ctx.globals);
             std::cout << "Unlock not implemented yet" << std::endl;
         }
         else if (s == Assert)
@@ -227,7 +259,7 @@ namespace gitmem
     // Add a descriptive return value
     bool run_thread_to_sync(GlobalContext &gctx, std::shared_ptr<Thread> thread)
     {
-        if (thread->completed)
+        if (thread->ctx.status == ThreadStatus::completed)
             return false;
 
         Node block = thread->block;
@@ -235,20 +267,20 @@ namespace gitmem
         ThreadContext &ctx = thread->ctx;
         bool first = true;
 
-        while (pc < block->size())
+        while (pc < block->size() && ctx.status == ThreadStatus::executing)
         {
             Node stmt = block->at(pc);
             if (!first && is_syncing(stmt))
                 return first;
 
-            if (!run_statement(stmt, ctx, gctx))
+            if (!run_statement(stmt, thread->id, ctx, gctx))
                 return false;
 
             pc++;
             first = false;
         }
 
-        thread->completed = true;
+        ctx.status = ThreadStatus::completed;
         return true;
     }
 
@@ -258,7 +290,7 @@ namespace gitmem
         bool stuck = true;
         for (size_t i = 0; i < gctx.threads.size(); ++i) {
             stuck &= !run_thread_to_sync(gctx, gctx.threads[i]);
-            all_completed &= gctx.threads[i]->completed;
+            all_completed &= (gctx.threads[i]->ctx.status == ThreadStatus::completed);
             // if a thread spawns a new thread, it will end up at the end so
             // we will always include the new threads in the termination
             // criteria
@@ -266,12 +298,12 @@ namespace gitmem
 
         if (stuck)
             std::cout << "Deadlock" << std::endl;
-        return stuck || all_completed;
+        return !(stuck || all_completed);
     }
 
     void run_threads(GlobalContext &gctx)
     {
-        while (!run_threads_to_sync(gctx)) {
+        while (run_threads_to_sync(gctx)) {
             std::cout << "-----------------------" << std::endl;
         }
     }
@@ -283,7 +315,7 @@ namespace gitmem
         auto main_thread = std::make_shared<Thread>(starting_ctx, starting_block);
 
         // TODO: Set up global context
-        GlobalContext gctx {{main_thread}};
+        GlobalContext gctx {{main_thread}, {}};
         run_threads(gctx);
     }
 }
