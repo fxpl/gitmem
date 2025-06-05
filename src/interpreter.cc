@@ -334,8 +334,6 @@ namespace gitmem
 
     std::variant<ProgressStatus, TerminationStatus> run_thread_to_sync(GlobalContext& gctx, const ThreadID& tid, std::shared_ptr<Thread> thread, NodeMap<size_t>& cache)
     {
-        if (thread->terminated) return ProgressStatus::no_progress;
-
         Node block = thread->block;
         size_t &pc = thread->pc;
         ThreadContext &ctx = thread->ctx;
@@ -374,20 +372,24 @@ namespace gitmem
         for (size_t i = 0; i < gctx.threads.size(); ++i)
         {
             std::cout << "==== t" << i << " ====" << std::endl;
-            auto prog_or_term = run_thread_to_sync(gctx, i, gctx.threads[i], cache);
-            if (ProgressStatus* prog = std::get_if<ProgressStatus>(&prog_or_term))
+            auto thread = gctx.threads[i];
+            if (!thread->terminated)
             {
-                std::cout << "here" << std::endl;
-                any_progress |= !!(*prog);
-                std::cout << "any_progress: " << any_progress << std::endl;
-            }
-            else
-            {
-                gctx.threads[i]->terminated = std::get<TerminationStatus>(prog_or_term);
-                any_progress |= (gctx.threads[i]->terminated == TerminationStatus::completed);
+                auto prog_or_term = run_thread_to_sync(gctx, i, thread, cache);
+                if (ProgressStatus* prog = std::get_if<ProgressStatus>(&prog_or_term))
+                {
+                    std::cout << "here" << std::endl;
+                    any_progress |= !!(*prog);
+                    std::cout << "any_progress: " << any_progress << std::endl;
+                }
+                else
+                {
+                    thread->terminated = std::get<TerminationStatus>(prog_or_term);
+                    any_progress |= (thread->terminated == TerminationStatus::completed);
+                }
             }
 
-            all_completed &= gctx.threads[i]->terminated.has_value();
+            all_completed &= thread->terminated.has_value();
             // if a thread spawns a new thread, it will end up at the end so
             // we will always include the new threads in the termination
             // criteria
