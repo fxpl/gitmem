@@ -1,10 +1,12 @@
 #include <trieste/trieste.h>
 #include <random>
+#include <variant>
 #include "lang.hh"
 
 namespace gitmem
 {
     using namespace trieste;
+
     using Locals = std::unordered_map<std::string, size_t>;
 
     struct Global {
@@ -15,17 +17,20 @@ namespace gitmem
 
     using Globals = std::unordered_map<std::string, Global>;
 
-    enum class ThreadStatus {
-        executing,
-        conflicted,
+    enum class TerminationStatus {
         completed,
+        datarace_exception,
+        unlock_exception,
+        assertion_failure_exception,
+        unassigned_variable_read_exception,
     };
+
+    using ThreadStatus = std::optional<TerminationStatus>;
 
     struct ThreadContext
     {
         Locals locals;
         Globals globals;
-        ThreadStatus status = ThreadStatus::executing;
     };
 
     using ThreadID = size_t;
@@ -34,15 +39,15 @@ namespace gitmem
     {
         ThreadContext ctx;
         Node block;
-        ThreadID id;
         size_t pc = 0;
+        ThreadStatus terminated = std::nullopt;
     };
 
     using Threads = std::vector<std::shared_ptr<Thread>>;
 
     struct Lock {
         Globals globals;
-        std::optional<ThreadID> owner;
+        std::optional<ThreadID> owner = std::nullopt;
     };
 
     using Locks = std::unordered_map<std::string, struct Lock>;
@@ -51,6 +56,13 @@ namespace gitmem
         Threads threads;
         Locks locks;
     };
+
+    enum class ProgressStatus {
+        progress,
+        no_progress
+    };
+
+    bool operator!(ProgressStatus p) { return p == ProgressStatus::no_progress; }
 
     bool is_syncing(Node stmt)
     {
@@ -62,21 +74,20 @@ namespace gitmem
         for (auto& [var, global] : globals) {
             if (global.commit)
             {
-                std::cout << "Committing global '" << var << "' with id " << global.commit.value() << std::endl;
                 global.history.push_back(global.commit.value());
+                std::cout << "Committed global '" << var << "' with id " << global.commit.value() << std::endl;
                 global.commit.reset();
             }
         }
     }
 
-    bool conflict(std::vector<size_t>& h1, std::vector<size_t>& h2)
+    bool has_conflict(std::vector<size_t>& h1, std::vector<size_t>& h2)
     {
         size_t length = std::min(h1.size(), h2.size());
 
         bool conflict = false;
         for (size_t i = 0; i < length && !conflict; ++i)
         {
-            std::cout << h1[i] << " = "  << h2[i] << std::endl;
             conflict |= (h1[i] != h2[i]);
         }
 
@@ -85,22 +96,19 @@ namespace gitmem
 
     // The changes from source are pulled into destination
     bool pull(Globals &dst, Globals &src) {
-        std::cout << "Pull" << std::endl;
-
         for (auto& [var, global] : src) {
-            std::cout << var << std::endl;
             if (dst.contains(var))
             {
                 auto& src_var = src[var];
                 auto& dst_var = dst[var];
-                if (conflict(src_var.history, dst_var.history))
+                if (has_conflict(src_var.history, dst_var.history))
                 {
-                    std::cout << "Data race" << std::endl;
+                    std::cout << "A data race on '" << var << "' was detected" << std::endl;
                     return false;
                 }
                 else if (src_var.history.size() > dst_var.history.size())
                 {
-                    std::cout << "Fast-forwards '" << var << "' to " << src_var.val << " with id " << *(src_var.history.end() - 1) << std::endl;
+                    std::cout << "Fast-forward '" << var << "' to id " << src_var.val << std::endl;
                     dst_var.val = src_var.val;
                     dst_var.history = src_var.history;
                 }
@@ -119,50 +127,68 @@ namespace gitmem
         return uuid++;
     }
 
-    size_t evaluate_expression(Node expr, ThreadContext &ctx, GlobalContext &gctx)
+    std::variant<size_t, TerminationStatus> evaluate_expression(Node expr, GlobalContext &gctx, ThreadContext &ctx)
     {
         auto e = expr / Expr;
         if (e == Reg)
         {
-            return ctx.locals[std::string(expr->location().view())];
+            auto var = std::string(expr->location().view());
+            if (ctx.locals.contains(var))
+            {
+                return ctx.locals[var];
+            }
+            else
+            {
+                return TerminationStatus::unassigned_variable_read_exception;
+            }
         }
         else if (e == Var)
         {
-            return ctx.globals[std::string(expr->location().view())].val;
+            auto var = std::string(expr->location().view());
+            if (ctx.globals.contains(var))
+            {
+                return ctx.globals[var].val;
+            }
+            else
+            {
+                return TerminationStatus::unassigned_variable_read_exception;
+            }
         }
         else if (e == Const)
         {
-            return std::stoi(std::string(e->location().view()));
+            return size_t(std::stoi(std::string(e->location().view())));
         }
         else if (e == Spawn)
         {
             commit(ctx.globals);
             ThreadID tid = gctx.threads.size();
             ThreadContext new_ctx = { Locals(), ctx.globals };
-            gctx.threads.push_back(std::make_shared<Thread>(new_ctx, e / Block, tid));
+            gctx.threads.push_back(std::make_shared<Thread>(new_ctx, e / Block));
             return tid;
         }
         else if (e == Eq)
         {
             auto lhs = e / Lhs;
             auto rhs = e / Rhs;
-            return evaluate_expression(lhs, ctx, gctx) == evaluate_expression(rhs, ctx, gctx);
+
+            // variant type can be used as a monad and there are methods
+            // to sort of do monadic composition but they're kind of horrible
+            auto lhsEval = evaluate_expression(lhs, gctx, ctx);
+            if (std::holds_alternative<TerminationStatus>(lhsEval)) return lhsEval;
+
+            auto rhsEval = evaluate_expression(rhs, gctx, ctx);
+            if (std::holds_alternative<TerminationStatus>(rhsEval)) return rhsEval;
+
+            return ((std::get<size_t>(lhsEval)) == (std::get<size_t>(rhsEval)));
         }
         else
         {
             std::cout << "Unknown expression: " << expr->type() << std::endl;
-            return 0;
+            return size_t(0);
         }
     }
 
-    enum class RunResult
-    {
-        progress,
-        stuck,
-        conflict,
-    };
-
-    bool run_statement(Node stmt, const ThreadID& tid, ThreadContext &ctx, GlobalContext &gctx)
+    std::variant<ProgressStatus, TerminationStatus> run_statement(Node stmt, NodeMap<size_t>& cache, GlobalContext &gctx, ThreadContext &ctx, const ThreadID& tid)
     {
         auto s = stmt / Stmt;
         if (s == Nop)
@@ -174,148 +200,263 @@ namespace gitmem
             auto lhs = s / LVal;
             auto var = std::string(lhs->location().view());
             auto rhs = s / Expr;
-            auto val = evaluate_expression(rhs, ctx, gctx);
-            if (lhs == Reg)
+            auto val_or_term = evaluate_expression(rhs, gctx, ctx);
+            if(size_t* val = std::get_if<size_t>(&val_or_term))
             {
-                std::cout << "Setting register '" << lhs->location().view() << "' to " << val << std::endl;
-                ctx.locals[var] = val;
-            }
-            else if (lhs == Var)
-            {
-                auto &global = ctx.globals[var];
-                global.val = val;
-                global.commit = get_uuid();
-                std::cout << "Setting global '" << lhs->location().view() << "' to " << val <<  " with id " << *(global.commit) << std::endl;
+                if (lhs == Reg)
+                {
+                    std::cout << "Set register '" << lhs->location().view() << "' to " << *val << std::endl;
+                    ctx.locals[var] = *val;
+                }
+                else if (lhs == Var)
+                {
+                    auto &global = ctx.globals[var];
+                    global.val = *val;
+                    global.commit = get_uuid();
+                    std::cout <<  "Set global '" << lhs->location().view() << "' to " << *val <<  " with id " << *(global.commit) << std::endl;
+                }
+                else
+                {
+                    std::cout << "Bad left-hand side: " << lhs->type() << std::endl;
+                }
             }
             else
             {
-                std::cout << "Bad left-hand side: " << lhs->type() << std::endl;
+                return std::get<TerminationStatus>(val_or_term);
             }
         }
         else if (s == Join)
         {
             auto expr = s / Expr;
-            auto result = evaluate_expression(expr, ctx, gctx);
 
+            if (!cache.contains(expr))
+            {
+                auto val_or_term = evaluate_expression(expr, gctx, ctx);
+                if (size_t* val = std::get_if<size_t>(&val_or_term))
+                {
+                    cache[expr] = *val;
+                }
+                else
+                {
+                    return std::get<TerminationStatus>(val_or_term);
+                }
+            }
+
+            auto result = cache[expr];
             auto& thread = gctx.threads[result];
-            if (thread->ctx.status == ThreadStatus::completed)
+            if (thread->terminated && (*thread->terminated == TerminationStatus::completed))
             {
                 commit(ctx.globals);
                 commit(thread->ctx.globals);
+                std::cout << "Pulling from thread " <<  result << std::endl;
                 if(!pull(ctx.globals, thread->ctx.globals))
                 {
-                    ctx.status = ThreadStatus::conflicted;
-                    return true;
+                    return TerminationStatus::datarace_exception;
                 }
             }
             else
             {
-                // The thread to join on is incomplete so we have to stop
                 std::cout << "Waiting on thread " << result << std::endl;
+                return ProgressStatus::no_progress;
             }
         }
         else if (s == Lock)
         {
-            auto var = std::string(s->location().view());
+            auto v = s / Var;
+            auto var = std::string(v->location().view());
 
             auto& lock = gctx.locks[var];
             if (lock.owner) {
-                return false;
+                std::cout << "Waiting for lock " << var << " owned by " << lock.owner.value() << std::endl;
+                return ProgressStatus::no_progress;
             }
 
             lock.owner = tid;
             commit(ctx.globals);
             if (!pull(ctx.globals, lock.globals))
             {
-                ctx.status = ThreadStatus::conflicted;
-                return true;
+                return TerminationStatus::datarace_exception;
             }
+
+            std::cout << "Locked " << var << std::endl;
+
         }
         else if (s == Unlock)
         {
             commit(ctx.globals);
-            std::cout << "Unlock not implemented yet" << std::endl;
+            auto v = s / Var;
+            auto var = std::string(v->location().view());
+
+            auto& lock = gctx.locks[var];
+            if (!lock.owner)
+            {
+                return TerminationStatus::unlock_exception;
+            }
+            else
+            {
+                lock.globals = ctx.globals;
+                lock.owner.reset();
+                std::cout << "Unlocked " << var << std::endl;
+            }
         }
         else if (s == Assert)
         {
             auto expr = s / Expr;
-            auto result = evaluate_expression(expr, ctx, gctx);
-            if (!result)
+            auto result_or_term = evaluate_expression(expr, gctx, ctx);
+            if (size_t* result = std::get_if<size_t>(&result_or_term))
             {
-                std::cout << "Assertion failed: " << expr->location().view() << std::endl;
+                if (*result)
+                {
+                    std::cout << "Assertion passed: " << expr->location().view() << std::endl;
+                }
+                else
+                {
+                    std::cout << "Assertion failed: " << expr->location().view() << std::endl;
+                    return TerminationStatus::assertion_failure_exception;
+                }
             }
             else
             {
-                std::cout << "Assertion passed: " << expr->location().view() << std::endl;
+                return std::get<TerminationStatus>(result_or_term);
             }
         }
         else
         {
             std::cout << "Unknown statement: " << stmt->type() << std::endl;
         }
-        return true;
+        return ProgressStatus::progress;
     }
 
-    // Add a descriptive return value
-    bool run_thread_to_sync(GlobalContext &gctx, std::shared_ptr<Thread> thread)
+    // The problem at the moment in join_spawn is in the final loop
+    // Thread 1 makes no progress
+    // Thread 2 completes and it's progress flag gets lost
+    // So in the final pass, neither thread progresses but thread 1 is not complete
+
+    std::variant<ProgressStatus, TerminationStatus> run_thread_to_sync(GlobalContext& gctx, const ThreadID& tid, std::shared_ptr<Thread> thread, NodeMap<size_t>& cache)
     {
-        if (thread->ctx.status == ThreadStatus::completed)
-            return false;
+        if (thread->terminated) return ProgressStatus::no_progress;
 
         Node block = thread->block;
         size_t &pc = thread->pc;
         ThreadContext &ctx = thread->ctx;
-        bool first = true;
 
-        while (pc < block->size() && ctx.status == ThreadStatus::executing)
+        bool first_statement = true;
+        while(pc < block->size())
         {
             Node stmt = block->at(pc);
-            if (!first && is_syncing(stmt))
-                return first;
 
-            if (!run_statement(stmt, thread->id, ctx, gctx))
-                return false;
+            if (!first_statement && is_syncing(stmt))
+                return ProgressStatus::progress;
+
+            auto prog_or_term = run_statement(stmt, cache, gctx, ctx, tid);
+            if (std::holds_alternative<TerminationStatus>(prog_or_term))
+                return prog_or_term;
+
+            if(!(std::get<ProgressStatus>(prog_or_term)))
+            {
+                std::cout << "exit first statement: " << (first_statement ? "true" : "false") << std::endl;
+                return first_statement ? ProgressStatus::no_progress : ProgressStatus::progress;
+            }
 
             pc++;
-            first = false;
+            first_statement = false;
         }
 
-        ctx.status = ThreadStatus::completed;
-        return true;
+        return TerminationStatus::completed;
     }
 
-    bool run_threads_to_sync(GlobalContext &gctx)
+    // true if termination reached
+    bool run_threads_to_sync(GlobalContext& gctx, NodeMap<size_t>& cache)
     {
+        std::cout << "-----------------------" << std::endl;
         bool all_completed = true;
-        bool stuck = true;
-        for (size_t i = 0; i < gctx.threads.size(); ++i) {
-            stuck &= !run_thread_to_sync(gctx, gctx.threads[i]);
-            all_completed &= (gctx.threads[i]->ctx.status == ThreadStatus::completed);
+        bool any_progress = false;
+        for (size_t i = 0; i < gctx.threads.size(); ++i)
+        {
+            std::cout << "==== t" << i << " ====" << std::endl;
+            auto prog_or_term = run_thread_to_sync(gctx, i, gctx.threads[i], cache);
+            if (ProgressStatus* prog = std::get_if<ProgressStatus>(&prog_or_term))
+            {
+                std::cout << "here" << std::endl;
+                any_progress |= !!(*prog);
+                std::cout << "any_progress: " << any_progress << std::endl;
+            }
+            else
+            {
+                gctx.threads[i]->terminated = std::get<TerminationStatus>(prog_or_term);
+            }
+
+            all_completed &= gctx.threads[i]->terminated.has_value();
             // if a thread spawns a new thread, it will end up at the end so
             // we will always include the new threads in the termination
             // criteria
         }
 
-        if (stuck)
-            std::cout << "Deadlock" << std::endl;
-        return !(stuck || all_completed);
+        std::cout << "any_progress: " << any_progress << " all_completed: " << all_completed << std::endl;
+
+        return (!any_progress || all_completed);
     }
 
-    void run_threads(GlobalContext &gctx)
+    int run_threads(GlobalContext &gctx)
     {
-        while (run_threads_to_sync(gctx)) {
-            std::cout << "-----------------------" << std::endl;
+        NodeMap<size_t> cache;
+
+        while (!run_threads_to_sync(gctx, cache)) {}
+
+        bool exception_detected = false;
+        for (size_t i = 0; i < gctx.threads.size(); ++i)
+        {
+            const auto& thread = gctx.threads[i];
+            if (thread->terminated)
+            {
+                switch (thread->terminated.value())
+                {
+                case TerminationStatus::completed:
+                    std::cout << "Thread " << i << " terminated normally" << std::endl;
+                    break;
+
+                case TerminationStatus::unlock_exception:
+                    std::cout << "Thread " << i << " unlocked an unlocked lock" << std::endl;
+                    exception_detected = true;
+                    break;
+
+                case TerminationStatus::datarace_exception:
+                    std::cout << "Thread " << i << " encountered a data-race" << std::endl;
+                    exception_detected = true;
+                    break;
+
+                case TerminationStatus::assertion_failure_exception:
+                    std::cout << "Thread " << i << " failed an assertion" << std::endl;
+                    exception_detected = true;
+                    break;
+
+                case TerminationStatus::unassigned_variable_read_exception:
+                    std::cout << "Thread " << i << " read an uninitialised value" << std::endl;
+                    exception_detected = true;
+                    break;
+
+                default:
+                    std::cout << "Thread " << i << " has an unhandled termination state" << std::endl;
+                    break;
+                }
+            }
+            else
+            {
+                exception_detected = true;
+                std::cout << "Thread " << i << " is stuck" << std::endl;
+            }
         }
+
+        return exception_detected ? 1 : 0;
     }
 
-    void interpret(const Node ast)
+    int interpret(const Node ast)
     {
         Node starting_block = ast / File / Block;
         ThreadContext starting_ctx = {};
         auto main_thread = std::make_shared<Thread>(starting_ctx, starting_block);
 
-        // TODO: Set up global context
         GlobalContext gctx {{main_thread}, {}};
-        run_threads(gctx);
+        return run_threads(gctx);
     }
 }

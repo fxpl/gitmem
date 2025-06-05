@@ -1,0 +1,15 @@
+x = 0;
+t = spawn {
+  assert(x == 0);
+  x = 2;
+  t2 = spawn {
+    assert(x == 2);
+    x = 14;
+    assert(x == 14);
+  };
+  assert(x == 2);
+};
+join t;
+assert (x == 2);
+join t2;
+assert (x == 14);

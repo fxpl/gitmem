@@ -1,0 +1,10 @@
+x = 0;
+lock l1;
+t = spawn {
+  assert (x == 0);
+  lock l1;
+  unlock l1;
+  assert (x == 2);
+};
+x = 2;
+unlock l1;

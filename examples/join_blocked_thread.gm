@@ -1,3 +1,0 @@
-$t2 = spawn { join t; };
-t = spawn { nop; };
-join $t2;
