@@ -384,6 +384,7 @@ namespace gitmem
             else
             {
                 gctx.threads[i]->terminated = std::get<TerminationStatus>(prog_or_term);
+                any_progress |= (gctx.threads[i]->terminated == TerminationStatus::completed);
             }
 
             all_completed &= gctx.threads[i]->terminated.has_value();
