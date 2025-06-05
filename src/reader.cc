@@ -11,6 +11,7 @@ Reader reader()
       {
         expressions(),
         statements(),
+        check_refs(),
       },
       gitmem::parser(),
     };

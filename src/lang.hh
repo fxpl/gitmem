@@ -20,7 +20,7 @@ namespace gitmem
 
   // Statements
   inline const auto Semi = TokenDef(";");
-  inline const auto Assign = TokenDef("=");
+  inline const auto Assign = TokenDef("=", flag::lookup);
   inline const auto Spawn = TokenDef("spawn");
   inline const auto Join = TokenDef("join");
   inline const auto Lock = TokenDef("lock");
@@ -34,7 +34,7 @@ namespace gitmem
 
   inline const auto Stmt = TokenDef("stmt");
   inline const auto Expr = TokenDef("expr");
-  inline const auto Block = TokenDef("block");
+  inline const auto Block = TokenDef("block", flag::symtab | flag::defbeforeuse);
 
   // Convenience
   inline const auto LVal = TokenDef("lval");
@@ -51,8 +51,8 @@ namespace gitmem
   | (Expr <<= (Reg | Var | Const | Spawn | Eq))
   | (Spawn <<= Block)
   | (Eq <<= (Lhs >>= Expr) * (Rhs >>= Expr))
-  | (Stmt <<= (Nop | Assign | Join | Lock | Unlock))
-  | (Assign <<= ((LVal >>= (Reg | Var)) * Expr))
+  | (Stmt <<= (Nop | Assign | Join | Lock | Unlock | Assert))
+  | (Assign <<= ((LVal >>= (Reg | Var)) * Expr))[LVal]
   | (Join <<= Expr)
   | (Lock <<= Var)
   | (Unlock <<= Var)

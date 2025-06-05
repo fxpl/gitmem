@@ -8,6 +8,7 @@ namespace gitmem
   Parse parser();
   PassDef expressions();
   PassDef statements();
+  PassDef check_refs();
 
   inline const auto parse_token =
      Reg | Var | Const | Nop | Brace | Paren |
@@ -58,7 +59,7 @@ namespace gitmem
     | (Spawn <<= Block)
     | (Block <<= Stmt++[1])
     | (Stmt <<= (Nop | Assign | Join | Lock | Unlock | Assert))
-    | (Assign <<= ((LVal >>= (Reg | Var)) * Expr))
+    | (Assign <<= ((LVal >>= (Reg | Var)) * Expr))[LVal]
     | (Join <<= Expr)
     | (Lock <<= Var)
     | (Unlock <<= Var)

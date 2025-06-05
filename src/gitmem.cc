@@ -27,6 +27,11 @@ int main(int argc, char **argv)
 
     try
     {
+        if (!std::filesystem::exists(input_path))
+        {
+            std::cerr << "Input file does not exist: " << input_path << std::endl;
+            return 1;
+        }
         auto reader = gitmem::reader().file(input_path);
         auto result = reader.read();
 

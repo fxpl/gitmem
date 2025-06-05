@@ -20,6 +20,7 @@ add_executable(gitmem
   src/parser.cc
   src/passes/expressions.cc
   src/passes/statements.cc
+  src/passes/check_refs.cc
   src/interpreter.cc
 )
 
@@ -29,6 +30,7 @@ add_executable(gitmem_trieste
   src/parser.cc
   src/passes/expressions.cc
   src/passes/statements.cc
+  src/passes/check_refs.cc
 )
 
 target_link_libraries(gitmem
