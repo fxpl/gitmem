@@ -64,6 +64,14 @@ namespace gitmem
 
     bool operator!(ProgressStatus p) { return p == ProgressStatus::no_progress; }
 
+
+    ProgressStatus operator||(const ProgressStatus& p1, const ProgressStatus& p2)
+    {
+        return (p1 == ProgressStatus::progress || p2 == ProgressStatus::progress) ? ProgressStatus::progress : ProgressStatus::no_progress;
+    }
+
+    void operator|=(ProgressStatus& p1, const ProgressStatus& p2) {  p1 = (p1 || p2); }
+
     bool is_syncing(Node stmt)
     {
         auto s = stmt / Stmt;
@@ -327,11 +335,6 @@ namespace gitmem
         return ProgressStatus::progress;
     }
 
-    // The problem at the moment in join_spawn is in the final loop
-    // Thread 1 makes no progress
-    // Thread 2 completes and it's progress flag gets lost
-    // So in the final pass, neither thread progresses but thread 1 is not complete
-
     std::variant<ProgressStatus, TerminationStatus> run_thread_to_sync(GlobalContext& gctx, const ThreadID& tid, std::shared_ptr<Thread> thread, NodeMap<size_t>& cache)
     {
         Node block = thread->block;
@@ -351,10 +354,7 @@ namespace gitmem
                 return prog_or_term;
 
             if(!(std::get<ProgressStatus>(prog_or_term)))
-            {
-                std::cout << "exit first statement: " << (first_statement ? "true" : "false") << std::endl;
                 return first_statement ? ProgressStatus::no_progress : ProgressStatus::progress;
-            }
 
             pc++;
             first_statement = false;
@@ -363,12 +363,11 @@ namespace gitmem
         return TerminationStatus::completed;
     }
 
-    // true if termination reached
-    bool run_threads_to_sync(GlobalContext& gctx, NodeMap<size_t>& cache)
+    std::variant<ProgressStatus, TerminationStatus> run_threads_to_sync(GlobalContext& gctx, NodeMap<size_t>& cache)
     {
         std::cout << "-----------------------" << std::endl;
         bool all_completed = true;
-        bool any_progress = false;
+        ProgressStatus any_progress = ProgressStatus::no_progress;
         for (size_t i = 0; i < gctx.threads.size(); ++i)
         {
             std::cout << "==== t" << i << " ====" << std::endl;
@@ -378,33 +377,49 @@ namespace gitmem
                 auto prog_or_term = run_thread_to_sync(gctx, i, thread, cache);
                 if (ProgressStatus* prog = std::get_if<ProgressStatus>(&prog_or_term))
                 {
-                    std::cout << "here" << std::endl;
-                    any_progress |= !!(*prog);
-                    std::cout << "any_progress: " << any_progress << std::endl;
+                    any_progress |= *prog;
                 }
                 else
                 {
+                    // We could return termination status of any error here an stop
+                    // at the first error
                     thread->terminated = std::get<TerminationStatus>(prog_or_term);
-                    any_progress |= (thread->terminated == TerminationStatus::completed);
+                    any_progress |= ProgressStatus::progress;
                 }
-            }
 
-            all_completed &= thread->terminated.has_value();
-            // if a thread spawns a new thread, it will end up at the end so
-            // we will always include the new threads in the termination
-            // criteria
+                all_completed &= thread->terminated.has_value();
+                // if a thread spawns a new thread, it will end up at the end so
+                // we will always include the new threads in the termination
+                // criteria
+            }
         }
 
-        std::cout << "any_progress: " << any_progress << " all_completed: " << all_completed << std::endl;
+        if (all_completed) return TerminationStatus::completed;
 
-        return (!any_progress || all_completed);
+        return any_progress;
+    }
+
+    bool is_finished(std::variant<ProgressStatus, TerminationStatus>& prog_or_term)
+    {
+        // Either, the system is stuck and made no progress in which case there
+        // is a deadlock (or a thread is stuck waiting for a crashed thread?)
+        if (ProgressStatus* prog = std::get_if<ProgressStatus>(&prog_or_term))
+            return (*prog) == ProgressStatus::no_progress;
+
+        // Or, there was some termination criteria in which case we stop
+        return true;
     }
 
     int run_threads(GlobalContext &gctx)
     {
         NodeMap<size_t> cache;
 
-        while (!run_threads_to_sync(gctx, cache)) {}
+        std::variant<ProgressStatus, TerminationStatus> prog_or_term;
+        do {
+            prog_or_term = run_threads_to_sync(gctx, cache);
+        } while (!is_finished(prog_or_term));
+
+        std::cout << "----------- execution complete -----------" << std::endl;
 
         bool exception_detected = false;
         for (size_t i = 0; i < gctx.threads.size(); ++i)
