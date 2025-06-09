@@ -102,10 +102,10 @@ namespace gitmem
 
         // Grouping
         "\\{" >> [](auto& m) { m.push(Brace); },
-        "\\}" >> [pop_until](auto& m) { pop_until(m, Brace, {Paren}); m.term(); m.pop(Brace); },
+        "\\}" >> [pop_until](auto& m) { pop_until(m, Brace, {Paren}); m.term(); m.pop(Brace); m.extend(Brace); },
 
         "\\(" >> [](auto& m) { m.push(Paren); },
-        "\\)" >> [pop_until](auto& m) { pop_until(m, Paren, {Brace}); m.term(); m.pop(Paren); },
+        "\\)" >> [pop_until](auto& m) { pop_until(m, Paren, {Brace}); m.term(); m.pop(Paren); m.extend(Paren); },
     }
     );
 

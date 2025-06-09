@@ -16,6 +16,11 @@ int main(int argc, char **argv)
            log_level,
            "Set the log level (None, Error, Output, Warn, Info, Debug, Trace).")
         ->check(trieste::logging::set_log_level_from_string);
+    bool interactive = false;
+    app.add_flag(
+        "-i,--interactive",
+        interactive,
+        "Enable interactive scheduling mode (use command ? for help).");
     try
     {
         app.parse(argc, argv);
@@ -43,8 +48,17 @@ int main(int argc, char **argv)
             return 1;
         }
 
+        int exit_status;
+
         wf::push_back(gitmem::wf);
-        int exit_status = gitmem::interpret(result.ast);
+        if (interactive)
+        {
+            exit_status = gitmem::interpret_interactive(result.ast);
+        }
+        else
+        {
+            exit_status = gitmem::interpret(result.ast);
+        }
         wf::pop_front();
         return exit_status;
     }

@@ -57,7 +57,7 @@ namespace gitmem
                                                << _(Expr));
                     },
 
-                --In(Stmt) * T(Assert) << ((T(Paren) << ((T(Expr)[Expr] << T(Eq)) * End))) >>
+                --In(Stmt) * T(Assert) << (T(Paren) << ((T(Expr)[Expr] << T(Eq)) * End)) >>
                     [](Match &_) -> Node
                     {
                         return Stmt << (Assert << _(Expr));
