@@ -168,11 +168,15 @@ namespace gitmem
         return true;
     }
 
+    /* Evaluating an expression either returns the result of the expression or
+     * a the exceptional termination status of the thread.
+     */
     std::variant<size_t, TerminationStatus> evaluate_expression(Node expr, GlobalContext &gctx, ThreadContext &ctx)
     {
         auto e = expr / Expr;
         if (e == Reg)
         {
+            // It is invalid to read a previously unwritten value
             auto var = std::string(expr->location().view());
             if (ctx.locals.contains(var))
             {
@@ -185,6 +189,7 @@ namespace gitmem
         }
         else if (e == Var)
         {
+            // It is invalid to read a previously unwritten value
             auto var = std::string(expr->location().view());
             if (ctx.globals.contains(var))
             {
@@ -201,6 +206,8 @@ namespace gitmem
         }
         else if (e == Spawn)
         {
+            // Spawning is a sync point, commit local pending commits, and
+            // copy the global state to the spawned thread
             commit(ctx.globals);
             ThreadID tid = gctx.threads.size();
             ThreadContext new_ctx = { Locals(), ctx.globals };
@@ -212,8 +219,6 @@ namespace gitmem
             auto lhs = e / Lhs;
             auto rhs = e / Rhs;
 
-            // variant type can be used as a monad and there are methods
-            // to sort of do monadic composition but they're kind of horrible
             auto lhsEval = evaluate_expression(lhs, gctx, ctx);
             if (std::holds_alternative<TerminationStatus>(lhsEval)) return lhsEval;
 
@@ -229,6 +234,10 @@ namespace gitmem
         }
     }
 
+    /* Evaluating a statement either returns whether the thread could progress
+     * (progress was made or it is waiting for some other thread) or
+     * the exceptional termination status of the thread.
+     */
     std::variant<ProgressStatus, TerminationStatus> run_statement(Node stmt, GlobalContext &gctx, ThreadContext &ctx, const ThreadID& tid)
     {
         auto s = stmt / Stmt;
@@ -246,11 +255,14 @@ namespace gitmem
             {
                 if (lhs == Reg)
                 {
+                    // Local variables can be re-assigned whenever
                     std::cout << "Set register '" << lhs->location().view() << "' to " << *val << std::endl;
                     ctx.locals[var] = *val;
                 }
                 else if (lhs == Var)
                 {
+                    // Global variable writes need to create a new commit id
+                    // to track the history of updates
                     auto &global = ctx.globals[var];
                     global.val = *val;
                     global.commit = gctx.uuid++;
@@ -268,6 +280,9 @@ namespace gitmem
         }
         else if (s == Join)
         {
+            // A join must waiting for the terminating thread to continue,
+            // we don't want to re-evaluate the expression repeatedly as this
+            // may be effecting so store the result in the cache.
             auto expr = s / Expr;
 
             if (!gctx.cache.contains(expr))
@@ -283,6 +298,9 @@ namespace gitmem
                 }
             }
 
+            // when joining, we commit the updates of both threads (the joined
+            // thread will not necessarily have commited them), we then
+            // pull the updates into the joining thread.
             auto result = gctx.cache[expr];
             auto& thread = gctx.threads[result];
             if (thread->terminated && (*thread->terminated == TerminationStatus::completed))
@@ -303,6 +321,9 @@ namespace gitmem
         }
         else if (s == Lock)
         {
+            // We can only lock unlocked locks, if a lock hasn't been used
+            // before it is implicitly created, we then commit the pending
+            // updates of this thread and pull the updates from the lock.
             auto v = s / Var;
             auto var = std::string(v->location().view());
 
@@ -324,6 +345,10 @@ namespace gitmem
         }
         else if (s == Unlock)
         {
+            // We can only unlock locks we previously locked. We commit any
+            // pending updates and then copy the threads versioned globals
+            // to the locks versioned globals (nobody could have changed
+            // them since we locked the lock).
             commit(ctx.globals);
             auto v = s / Var;
             auto var = std::string(v->location().view());
@@ -368,6 +393,10 @@ namespace gitmem
         return ProgressStatus::progress;
     }
 
+    /* Run a particular thread until it reaches a synchronisation point or until
+     * it terminates. Report whether the thread was able to progress or not, or
+     * whether it terminated.
+     */
     std::variant<ProgressStatus, TerminationStatus> run_thread_to_sync(GlobalContext& gctx, const ThreadID& tid, std::shared_ptr<Thread> thread)
     {
         Node block = thread->block;
@@ -396,6 +425,8 @@ namespace gitmem
         return TerminationStatus::completed;
     }
 
+    /* Try to evaluate all threads until a sync point or termination point
+     */
     std::variant<ProgressStatus, TerminationStatus> run_threads_to_sync(GlobalContext& gctx, NodeMap<size_t>& cache)
     {
         std::cout << "-----------------------" << std::endl;
@@ -443,6 +474,9 @@ namespace gitmem
         return true;
     }
 
+    /* Try to evaluate all threads until they have all terminated in some way
+     * or we have reached a stuck configuration.
+     */
     int run_threads(GlobalContext &gctx)
     {
         NodeMap<size_t> cache;
