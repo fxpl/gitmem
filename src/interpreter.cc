@@ -296,7 +296,7 @@ namespace gitmem
             auto var = std::string(v->location().view());
 
             auto& lock = gctx.locks[var];
-            if (!lock.owner)
+            if (!lock.owner || (lock.owner && *lock.owner != tid))
             {
                 return TerminationStatus::unlock_exception;
             }
@@ -381,7 +381,7 @@ namespace gitmem
                 }
                 else
                 {
-                    // We could return termination status of any error here an stop
+                    // We could return termination status of any error here and stop
                     // at the first error
                     thread->terminated = std::get<TerminationStatus>(prog_or_term);
                     any_progress |= ProgressStatus::progress;
@@ -434,7 +434,7 @@ namespace gitmem
                     break;
 
                 case TerminationStatus::unlock_exception:
-                    std::cout << "Thread " << i << " unlocked an unlocked lock" << std::endl;
+                    std::cout << "Thread " << i << " unlocked a lock it does not own" << std::endl;
                     exception_detected = true;
                     break;
 
