@@ -25,12 +25,15 @@ namespace gitmem
     /* A 'Global' is a structure to capture the current synchronising objects
      * representation of a global variable. The structure is the current value,
      * the current commit id for the variable, and the history of commited ids.
-     *
      */
+
+    using Commit = size_t;
+    using CommitHistory = std::vector<Commit>;
+
     struct Global {
         size_t val;
-        std::optional<size_t> commit;
-        std::vector<size_t> history;
+        std::optional<Commit> commit;
+        CommitHistory history;
     };
 
     using Globals = std::unordered_map<std::string, Global>;
@@ -51,8 +54,6 @@ namespace gitmem
         Globals globals;
     };
 
-    using ThreadID = size_t;
-
     using ThreadStatus = std::optional<TerminationStatus>;
 
     struct Thread
@@ -63,12 +64,14 @@ namespace gitmem
         ThreadStatus terminated = std::nullopt;
     };
 
-    using Threads = std::vector<std::shared_ptr<Thread>>;
+    using ThreadID = size_t;
 
     struct Lock {
         Globals globals;
         std::optional<ThreadID> owner = std::nullopt;
     };
+
+    using Threads = std::vector<std::shared_ptr<Thread>>;
 
     using Locks = std::unordered_map<std::string, struct Lock>;
 
@@ -76,6 +79,7 @@ namespace gitmem
         Threads threads;
         Locks locks;
         NodeMap<size_t> cache;
+        Commit uuid = 0;
     };
 
     enum class ProgressStatus {
@@ -84,7 +88,6 @@ namespace gitmem
     };
 
     bool operator!(ProgressStatus p) { return p == ProgressStatus::no_progress; }
-
 
     ProgressStatus operator||(const ProgressStatus& p1, const ProgressStatus& p2)
     {
@@ -99,6 +102,10 @@ namespace gitmem
         return s == Join || s == Lock || s == Unlock;
     }
 
+    /* At a commit point, walk through all the versioned variables and see if
+     * they have a pending commit, if so commit the value by appending to
+     * the variables history.
+     */
     void commit(Globals &globals) {
         for (auto& [var, global] : globals) {
             if (global.commit)
@@ -110,7 +117,13 @@ namespace gitmem
         }
     }
 
-    bool has_conflict(std::vector<size_t>& h1, std::vector<size_t>& h2)
+
+    /* A versioned value can be fastforwarded to another version, if one
+     * version's history is a prefix of another version's history.
+     * A conflict between two commit histories exists if neither history is a
+     * prefix of the other.
+     */
+    bool has_conflict(CommitHistory& h1, CommitHistory& h2)
     {
         size_t length = std::min(h1.size(), h2.size());
 
@@ -123,7 +136,11 @@ namespace gitmem
         return conflict;
     }
 
-    // The changes from source are pulled into destination
+    /* Walk through all the global versions from source and update the versions
+     * in destination to be the most up-to-date version (this could come from
+     * either source or destination). This means destination will now also
+     * include variables it previously did not know about.
+     */
     bool pull(Globals &dst, Globals &src) {
         for (auto& [var, global] : src) {
             if (dst.contains(var))
@@ -149,11 +166,6 @@ namespace gitmem
             }
         }
         return true;
-    }
-
-    size_t get_uuid() {
-        static size_t uuid = 0;
-        return uuid++;
     }
 
     std::variant<size_t, TerminationStatus> evaluate_expression(Node expr, GlobalContext &gctx, ThreadContext &ctx)
@@ -241,7 +253,7 @@ namespace gitmem
                 {
                     auto &global = ctx.globals[var];
                     global.val = *val;
-                    global.commit = get_uuid();
+                    global.commit = gctx.uuid++;
                     std::cout <<  "Set global '" << lhs->location().view() << "' to " << *val <<  " with id " << *(global.commit) << std::endl;
                 }
                 else
