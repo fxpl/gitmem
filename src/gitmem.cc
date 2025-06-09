@@ -44,13 +44,13 @@ int main(int argc, char **argv)
         }
 
         wf::push_back(gitmem::wf);
-        gitmem::interpret(result.ast);
+        int exit_status = gitmem::interpret(result.ast);
         wf::pop_front();
+        return exit_status;
     }
     catch (const std::exception &e)
     {
         std::cerr << "Exception caught: " << e.what() << std::endl;
         return 1;
     }
-    return 0;
 }

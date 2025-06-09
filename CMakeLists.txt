@@ -11,6 +11,9 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(trieste)
 
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD_REQUIRED True)
+
 add_executable(gitmem
   src/gitmem.cc
   src/reader.cc
@@ -40,5 +43,19 @@ target_link_libraries(gitmem_trieste
   trieste::trieste
 )
 
-set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_STANDARD_REQUIRED True)
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+
+add_custom_target(run_gitmem_tests
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/test_gitmem.py --gitmem $<TARGET_FILE:gitmem>
+    DEPENDS gitmem
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Running gitmem functional tests"
+)
+
+enable_testing()
+
+add_test(
+    NAME gitmem_functional_tests
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/test_gitmem.py --gitmem $<TARGET_FILE:gitmem>
+)
