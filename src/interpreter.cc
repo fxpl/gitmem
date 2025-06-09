@@ -7,8 +7,26 @@ namespace gitmem
 {
     using namespace trieste;
 
-    using Locals = std::unordered_map<std::string, size_t>;
+    /* Interpreter for a gitmem program. Threads can read and write local
+     * variables as well as versioned global variables. Globals are not stored
+     * in a single memory location but instead in the state of 'synchronising
+     * objects' which include threads and locks. Synchronising actions between
+     * threads, and between threads and locks, synchronise the versioned memory
+     * and if both objects see updates to the same versioned global variable
+     * then a data race is detected. These synchronising actions include:
+     * - thread t1 joining a thread t2, which waits for t2 to complete before
+     *   trying to 'pull' the new data into t1
+     * - t locking a lock l, which waits for the lock l to be available before
+     *   trying to 'pull' the new data into t
+     * - t unlocking a lock l, which updates l to have t's versioned memory
+     */
 
+
+    /* A 'Global' is a structure to capture the current synchronising objects
+     * representation of a global variable. The structure is the current value,
+     * the current commit id for the variable, and the history of commited ids.
+     *
+     */
     struct Global {
         size_t val;
         std::optional<size_t> commit;
@@ -25,7 +43,7 @@ namespace gitmem
         unassigned_variable_read_exception,
     };
 
-    using ThreadStatus = std::optional<TerminationStatus>;
+    using Locals = std::unordered_map<std::string, size_t>;
 
     struct ThreadContext
     {
@@ -34,6 +52,8 @@ namespace gitmem
     };
 
     using ThreadID = size_t;
+
+    using ThreadStatus = std::optional<TerminationStatus>;
 
     struct Thread
     {
@@ -55,6 +75,7 @@ namespace gitmem
     struct GlobalContext {
         Threads threads;
         Locks locks;
+        NodeMap<size_t> cache;
     };
 
     enum class ProgressStatus {
@@ -196,7 +217,7 @@ namespace gitmem
         }
     }
 
-    std::variant<ProgressStatus, TerminationStatus> run_statement(Node stmt, NodeMap<size_t>& cache, GlobalContext &gctx, ThreadContext &ctx, const ThreadID& tid)
+    std::variant<ProgressStatus, TerminationStatus> run_statement(Node stmt, GlobalContext &gctx, ThreadContext &ctx, const ThreadID& tid)
     {
         auto s = stmt / Stmt;
         if (s == Nop)
@@ -237,12 +258,12 @@ namespace gitmem
         {
             auto expr = s / Expr;
 
-            if (!cache.contains(expr))
+            if (!gctx.cache.contains(expr))
             {
                 auto val_or_term = evaluate_expression(expr, gctx, ctx);
                 if (size_t* val = std::get_if<size_t>(&val_or_term))
                 {
-                    cache[expr] = *val;
+                    gctx.cache[expr] = *val;
                 }
                 else
                 {
@@ -250,7 +271,7 @@ namespace gitmem
                 }
             }
 
-            auto result = cache[expr];
+            auto result = gctx.cache[expr];
             auto& thread = gctx.threads[result];
             if (thread->terminated && (*thread->terminated == TerminationStatus::completed))
             {
@@ -335,7 +356,7 @@ namespace gitmem
         return ProgressStatus::progress;
     }
 
-    std::variant<ProgressStatus, TerminationStatus> run_thread_to_sync(GlobalContext& gctx, const ThreadID& tid, std::shared_ptr<Thread> thread, NodeMap<size_t>& cache)
+    std::variant<ProgressStatus, TerminationStatus> run_thread_to_sync(GlobalContext& gctx, const ThreadID& tid, std::shared_ptr<Thread> thread)
     {
         Node block = thread->block;
         size_t &pc = thread->pc;
@@ -349,7 +370,7 @@ namespace gitmem
             if (!first_statement && is_syncing(stmt))
                 return ProgressStatus::progress;
 
-            auto prog_or_term = run_statement(stmt, cache, gctx, ctx, tid);
+            auto prog_or_term = run_statement(stmt, gctx, ctx, tid);
             if (std::holds_alternative<TerminationStatus>(prog_or_term))
                 return prog_or_term;
 
@@ -374,7 +395,7 @@ namespace gitmem
             auto thread = gctx.threads[i];
             if (!thread->terminated)
             {
-                auto prog_or_term = run_thread_to_sync(gctx, i, thread, cache);
+                auto prog_or_term = run_thread_to_sync(gctx, i, thread);
                 if (ProgressStatus* prog = std::get_if<ProgressStatus>(&prog_or_term))
                 {
                     any_progress |= *prog;
