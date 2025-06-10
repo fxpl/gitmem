@@ -1,6 +1,7 @@
 #include <CLI/CLI.hpp>
 
 #include "lang.hh"
+#include "interpreter.hh"
 
 int main(int argc, char **argv)
 {
