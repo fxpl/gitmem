@@ -26,29 +26,32 @@ namespace gitmem
     void show_thread(const Thread &thread, size_t tid)
     {
         std::cout << "---- Thread " << tid << std::endl;
-        if (thread.ctx.locals.size() > 0) {
-          for (auto& [reg, val] : thread.ctx.locals)
-          {
-            std::cout << reg << " = " << val << std::endl;
-          }
-          std::cout << "--" << std::endl;
+        if (thread.ctx.locals.size() > 0)
+        {
+            for (auto &[reg, val] : thread.ctx.locals)
+            {
+                std::cout << reg << " = " << val << std::endl;
+            }
+            std::cout << "--" << std::endl;
         }
 
-        if (thread.ctx.globals.size() > 0) {
-          for (auto& [var, val] : thread.ctx.globals)
-          {
-            std::cout << var << " = " << val.val
-                      << " [" << (val.commit? std::to_string(*val.commit): "_") << "; ";
-            for (size_t i = 0; i < val.history.size(); ++i)
+        if (thread.ctx.globals.size() > 0)
+        {
+            for (auto &[var, val] : thread.ctx.globals)
             {
-              std::cout << val.history[i];
-              if (i < val.history.size() - 1) {
-                std::cout << ", ";
-              }
+                std::cout << var << " = " << val.val
+                          << " [" << (val.commit ? std::to_string(*val.commit) : "_") << "; ";
+                for (size_t i = 0; i < val.history.size(); ++i)
+                {
+                    std::cout << val.history[i];
+                    if (i < val.history.size() - 1)
+                    {
+                        std::cout << ", ";
+                    }
+                }
+                std::cout << "]" << std::endl;
             }
-            std::cout << "]" << std::endl;
-          }
-          std::cout << "--" << std::endl;
+            std::cout << "--" << std::endl;
         }
 
         size_t idx = 0;
@@ -69,7 +72,8 @@ namespace gitmem
 
             idx++;
         }
-        if (thread.pc == thread.block->size()) {
+        if (thread.pc == thread.block->size())
+        {
             std::cout << "-> " << std::endl;
         }
     }
@@ -77,9 +81,9 @@ namespace gitmem
     /** Show the global context, including locks and non-completed threads. If
      * show_all is true, show all threads, even those that have terminated
      * normally. */
-    void show_global_context(const GlobalContext& gctx, bool show_all = false)
+    void show_global_context(const GlobalContext &gctx, bool show_all = false)
     {
-        auto& threads = gctx.threads;
+        auto &threads = gctx.threads;
         bool showed_any = false;
         for (size_t i = 0; i < threads.size(); i++)
         {
@@ -94,30 +98,30 @@ namespace gitmem
 
         if (showed_any && gctx.locks.size() > 0)
         {
-          std::cout << "---- Locks" << std::endl;
+            std::cout << "---- Locks" << std::endl;
 
-          for (const auto& [lock_name, lock] : gctx.locks)
-          {
-            std::cout << lock_name << ": ";
-            if (lock.owner)
+            for (const auto &[lock_name, lock] : gctx.locks)
             {
-                std::cout << *lock.owner;
+                std::cout << lock_name << ": ";
+                if (lock.owner)
+                {
+                    std::cout << *lock.owner;
+                }
+                else
+                {
+                    std::cout << "<free>";
+                }
+                std::cout << std::endl;
             }
-            else
-            {
-                std::cout << "<free>";
-            }
-            std::cout << std::endl;
-          }
 
-          if (gctx.locks.size() > 0)
-            std::cout << "--" << std::endl;
+            if (gctx.locks.size() > 0)
+                std::cout << "--" << std::endl;
         }
     }
 
     /** Parse a command. See the help string for the 'Info' command for details.
      */
-    Command parse_command(std::string& input)
+    Command parse_command(std::string &input)
     {
         auto command = std::string(input);
         command.erase(0, command.find_first_not_of(" \t\n\r"));
@@ -125,47 +129,47 @@ namespace gitmem
 
         if (command.find_first_not_of("0123456789") == std::string::npos)
         {
-          // Interpret numbers as stepping
-          return {Command::Step, std::stoul(command)};
+            // Interpret numbers as stepping
+            return {Command::Step, std::stoul(command)};
         }
         else if (command == "s" || (command.at(0) == 's' && !std::isalpha(command.at(1))))
         {
-          auto arg = command.substr(1);
-          arg.erase(0, arg.find_first_not_of(" \t\n\r"));
-          if (arg.size() > 0 && arg.find_first_not_of("0123456789") == std::string::npos)
-          {
-            return {Command::Step, std::stoul(arg)};
-          }
-          else
-          {
-            std::cout << "Expected thread id" << std::endl;
-            return {Command::Skip};
-          }
+            auto arg = command.substr(1);
+            arg.erase(0, arg.find_first_not_of(" \t\n\r"));
+            if (arg.size() > 0 && arg.find_first_not_of("0123456789") == std::string::npos)
+            {
+                return {Command::Step, std::stoul(arg)};
+            }
+            else
+            {
+                std::cout << "Expected thread id" << std::endl;
+                return {Command::Skip};
+            }
         }
         else if (command == "q")
         {
-          return {Command::Quit};
+            return {Command::Quit};
         }
         else if (command == "r")
         {
-          return {Command::Restart};
+            return {Command::Restart};
         }
         else if (command == "f")
         {
-          return {Command::Finish};
+            return {Command::Finish};
         }
         else if (command == "l")
         {
-          return {Command::List};
+            return {Command::List};
         }
         else if (command == "?")
         {
-          return {Command::Info};
+            return {Command::Info};
         }
         else
         {
-          std::cout << "Unknown command: " << input << std::endl;
-          return {Command::Skip};
+            std::cout << "Unknown command: " << input << std::endl;
+            return {Command::Skip};
         }
     }
 
@@ -177,7 +181,7 @@ namespace gitmem
         ThreadContext starting_ctx = {};
         auto main_thread = std::make_shared<Thread>(starting_ctx, starting_block);
 
-        GlobalContext gctx {{main_thread}, {}, {}};
+        GlobalContext gctx{{main_thread}, {}, {}};
 
         size_t prev_no_threads = 0;
         Command command = {Command::List};
@@ -231,15 +235,16 @@ namespace gitmem
                 }
 
                 auto prog_or_term = run_thread_to_sync(gctx, tid, thread);
-                if (ProgressStatus* prog = std::get_if<ProgressStatus>(&prog_or_term))
+                if (ProgressStatus *prog = std::get_if<ProgressStatus>(&prog_or_term))
                 {
-                    if (!*prog) {
-                      auto stmt = thread->block->at(thread->pc);
-                      msg = "Thread " + std::to_string(tid) + " is blocking on '" + std::string(stmt->location().view()) + "'";
-                      command = {Command::Skip};
+                    if (!*prog)
+                    {
+                        auto stmt = thread->block->at(thread->pc);
+                        msg = "Thread " + std::to_string(tid) + " is blocking on '" + std::string(stmt->location().view()) + "'";
+                        command = {Command::Skip};
                     }
                 }
-                else if (TerminationStatus* term = std::get_if<TerminationStatus>(&prog_or_term))
+                else if (TerminationStatus *term = std::get_if<TerminationStatus>(&prog_or_term))
                 {
                     switch (*term)
                     {
@@ -254,7 +259,8 @@ namespace gitmem
                         msg = "Thread " + std::to_string(tid) + " encountered a data race and was terminated";
                         command = {Command::Skip};
                         break;
-                    case TerminationStatus::assertion_failure_exception: {
+                    case TerminationStatus::assertion_failure_exception:
+                    {
                         auto expr = thread->block->at(thread->pc) / Stmt / Expr;
                         msg = "Thread " + std::to_string(tid) + " failed assertion '" + std::string(expr->location().view()) + "' and was terminated";
                         command = {Command::Skip};

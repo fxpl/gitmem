@@ -28,8 +28,8 @@ namespace gitmem
         }
     };
 
-    template<typename S>
-    void print_traces(S& stream, const std::vector<std::vector<ThreadID>> &traces)
+    template <typename S>
+    void print_traces(S &stream, const std::vector<std::vector<ThreadID>> &traces)
     {
         for (const auto &trace : traces)
         {
@@ -95,8 +95,7 @@ namespace gitmem
                             cursor->complete = true;
                         }
                     }
-                    else if (std::get<ProgressStatus>(prog_or_term) == ProgressStatus::progress
-                             || gctx.threads.size() > no_threads)
+                    else if (std::get<ProgressStatus>(prog_or_term) == ProgressStatus::progress || gctx.threads.size() > no_threads)
                     {
                         // Thread made progress, we can continue
                         made_progress = true;
