@@ -11,12 +11,12 @@ int main(int argc, char **argv)
     std::filesystem::path input_path;
     app.add_option("input", input_path, "Path to the input file ")->required();
 
-    std::string log_level;
-    app.add_option(
-           "-l,--log",
-           log_level,
-           "Set the log level (None, Error, Output, Warn, Info, Debug, Trace).")
-        ->check(trieste::logging::set_log_level_from_string);
+    bool verbose = false;
+    app.add_flag(
+        "-v,--verbose",
+        verbose,
+        "Enable verbose output from the interpreter."
+    );
 
     // TODO: These should probably be subcommands
     bool interactive = false;
@@ -58,8 +58,9 @@ int main(int argc, char **argv)
             return 1;
         }
 
-        int exit_status;
+        gitmem::verbose.enabled = verbose;
 
+        int exit_status;
         wf::push_back(gitmem::wf);
         if (model_check)
         {

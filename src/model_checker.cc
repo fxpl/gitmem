@@ -60,6 +60,7 @@ namespace gitmem
         const auto root = std::make_shared<TraceNode>(0);
         auto cursor = root;
         auto current_trace = std::vector<size_t>{0}; // Start with the main thread
+        verbose << "==== Thread " << cursor->tid_ << " ====" << std::endl;
         run_thread_to_sync(gctx, cursor->tid_, gctx.threads[cursor->tid_]);
 
         while (!root->complete)
@@ -69,6 +70,7 @@ namespace gitmem
                 // We have a child that is not complete, we can extend that trace
                 cursor = cursor->children.back();
                 current_trace.push_back(cursor->tid_);
+                verbose << "==== Thread " << cursor->tid_ << " (replay) ====" << std::endl;
                 run_thread_to_sync(gctx, cursor->tid_, gctx.threads[cursor->tid_]);
             }
 
@@ -82,6 +84,7 @@ namespace gitmem
                 if (!thread->terminated)
                 {
                     // Run the thread to the next sync point
+                    verbose << "==== Thread " << i << " ====" << std::endl;
                     auto prog_or_term = run_thread_to_sync(gctx, i, thread);
                     if (std::holds_alternative<TerminationStatus>(prog_or_term))
                     {
@@ -92,6 +95,7 @@ namespace gitmem
                         if (std::get<TerminationStatus>(prog_or_term) != TerminationStatus::completed)
                         {
                             // Thread terminated with an error, we can stop here
+                            verbose << "Thread " << i << " terminated with an error" << std::endl;
                             cursor->complete = true;
                         }
                     }
@@ -138,6 +142,7 @@ namespace gitmem
             if (cursor->complete && !root->complete)
             {
                 // Reset the cursor to the root and start a new trace
+                verbose << std::endl << "Restarting trace..." << std::endl;
                 ThreadContext new_starting_ctx = {};
                 auto new_main_thread = std::make_shared<Thread>(new_starting_ctx, starting_block);
                 gctx = {{new_main_thread}, {}, {}};
@@ -145,13 +150,13 @@ namespace gitmem
                 cursor = root;
                 current_trace.clear();
                 current_trace.push_back(0); // Start with the main thread again
+                verbose << "==== Thread " << cursor->tid_ << " (replay) ====" << std::endl;
                 run_thread_to_sync(gctx, cursor->tid_, gctx.threads[cursor->tid_]);
             }
         }
 
-        logging::Info log;
-        log << "Found a total of " << traces.size() << " trace(s) with distinct final states:" << std::endl;
-        print_traces(log, traces);
+        verbose << "Found a total of " << traces.size() << " trace(s) with distinct final states:" << std::endl;
+        print_traces(verbose, traces);
 
         if (!bad_traces.empty())
         {

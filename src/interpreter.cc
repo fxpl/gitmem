@@ -36,7 +36,7 @@ namespace gitmem
             if (global.commit)
             {
                 global.history.push_back(global.commit.value());
-                std::cout << "Committed global '" << var << "' with id " << global.commit.value() << std::endl;
+                verbose << "Committed global '" << var << "' with id " << global.commit.value() << std::endl;
                 global.commit.reset();
             }
         }
@@ -74,12 +74,12 @@ namespace gitmem
                 auto& dst_var = dst[var];
                 if (has_conflict(src_var.history, dst_var.history))
                 {
-                    std::cout << "A data race on '" << var << "' was detected" << std::endl;
+                    verbose << "A data race on '" << var << "' was detected" << std::endl;
                     return false;
                 }
                 else if (src_var.history.size() > dst_var.history.size())
                 {
-                    std::cout << "Fast-forward '" << var << "' to id " << src_var.val << std::endl;
+                    verbose << "Fast-forward '" << var << "' to id " << src_var.val << std::endl;
                     dst_var.val = src_var.val;
                     dst_var.history = src_var.history;
                 }
@@ -167,7 +167,7 @@ namespace gitmem
         auto s = stmt / Stmt;
         if (s == Nop)
         {
-            std::cout << "Nop" << std::endl;
+            verbose << "Nop" << std::endl;
         }
         else if (s == Assign)
         {
@@ -180,7 +180,7 @@ namespace gitmem
                 if (lhs == Reg)
                 {
                     // Local variables can be re-assigned whenever
-                    std::cout << "Set register '" << lhs->location().view() << "' to " << *val << std::endl;
+                    verbose << "Set register '" << lhs->location().view() << "' to " << *val << std::endl;
                     ctx.locals[var] = *val;
                 }
                 else if (lhs == Var)
@@ -190,7 +190,7 @@ namespace gitmem
                     auto &global = ctx.globals[var];
                     global.val = *val;
                     global.commit = gctx.uuid++;
-                    std::cout <<  "Set global '" << lhs->location().view() << "' to " << *val <<  " with id " << *(global.commit) << std::endl;
+                    verbose <<  "Set global '" << lhs->location().view() << "' to " << *val <<  " with id " << *(global.commit) << std::endl;
                 }
                 else
                 {
@@ -231,7 +231,7 @@ namespace gitmem
             {
                 commit(ctx.globals);
                 commit(thread->ctx.globals);
-                std::cout << "Pulling from thread " <<  result << std::endl;
+                verbose << "Pulling from thread " <<  result << std::endl;
                 if(!pull(ctx.globals, thread->ctx.globals))
                 {
                     return TerminationStatus::datarace_exception;
@@ -239,7 +239,7 @@ namespace gitmem
             }
             else
             {
-                std::cout << "Waiting on thread " << result << std::endl;
+                verbose << "Waiting on thread " << result << std::endl;
                 return ProgressStatus::no_progress;
             }
         }
@@ -253,7 +253,7 @@ namespace gitmem
 
             auto& lock = gctx.locks[var];
             if (lock.owner) {
-                std::cout << "Waiting for lock " << var << " owned by " << lock.owner.value() << std::endl;
+                verbose << "Waiting for lock " << var << " owned by " << lock.owner.value() << std::endl;
                 return ProgressStatus::no_progress;
             }
 
@@ -264,7 +264,7 @@ namespace gitmem
                 return TerminationStatus::datarace_exception;
             }
 
-            std::cout << "Locked " << var << std::endl;
+            verbose << "Locked " << var << std::endl;
 
         }
         else if (s == Unlock)
@@ -286,7 +286,7 @@ namespace gitmem
             {
                 lock.globals = ctx.globals;
                 lock.owner.reset();
-                std::cout << "Unlocked " << var << std::endl;
+                verbose << "Unlocked " << var << std::endl;
             }
         }
         else if (s == Assert)
@@ -297,11 +297,11 @@ namespace gitmem
             {
                 if (*result)
                 {
-                    std::cout << "Assertion passed: " << expr->location().view() << std::endl;
+                    verbose << "Assertion passed: " << expr->location().view() << std::endl;
                 }
                 else
                 {
-                    std::cout << "Assertion failed: " << expr->location().view() << std::endl;
+                    verbose << "Assertion failed: " << expr->location().view() << std::endl;
                     return TerminationStatus::assertion_failure_exception;
                 }
             }
@@ -360,12 +360,12 @@ namespace gitmem
      */
     std::variant<ProgressStatus, TerminationStatus> run_threads_to_sync(GlobalContext& gctx)
     {
-        std::cout << "-----------------------" << std::endl;
+        verbose << "-----------------------" << std::endl;
         bool all_completed = true;
         ProgressStatus any_progress = ProgressStatus::no_progress;
         for (size_t i = 0; i < gctx.threads.size(); ++i)
         {
-            std::cout << "==== t" << i << " ====" << std::endl;
+            verbose << "==== t" << i << " ====" << std::endl;
             auto thread = gctx.threads[i];
             if (!thread->terminated)
             {
@@ -415,7 +415,7 @@ namespace gitmem
             prog_or_term = run_threads_to_sync(gctx);
         } while (!is_finished(prog_or_term));
 
-        std::cout << "----------- execution complete -----------" << std::endl;
+        verbose << "----------- execution complete -----------" << std::endl;
 
         bool exception_detected = false;
         for (size_t i = 0; i < gctx.threads.size(); ++i)
@@ -426,38 +426,38 @@ namespace gitmem
                 switch (thread->terminated.value())
                 {
                 case TerminationStatus::completed:
-                    std::cout << "Thread " << i << " terminated normally" << std::endl;
+                    verbose << "Thread " << i << " terminated normally" << std::endl;
                     break;
 
                 case TerminationStatus::unlock_exception:
-                    std::cout << "Thread " << i << " unlocked a lock it does not own" << std::endl;
+                    verbose << "Thread " << i << " unlocked a lock it does not own" << std::endl;
                     exception_detected = true;
                     break;
 
                 case TerminationStatus::datarace_exception:
-                    std::cout << "Thread " << i << " encountered a data-race" << std::endl;
+                    verbose << "Thread " << i << " encountered a data-race" << std::endl;
                     exception_detected = true;
                     break;
 
                 case TerminationStatus::assertion_failure_exception:
-                    std::cout << "Thread " << i << " failed an assertion" << std::endl;
+                    verbose << "Thread " << i << " failed an assertion" << std::endl;
                     exception_detected = true;
                     break;
 
                 case TerminationStatus::unassigned_variable_read_exception:
-                    std::cout << "Thread " << i << " read an uninitialised value" << std::endl;
+                    verbose << "Thread " << i << " read an uninitialised value" << std::endl;
                     exception_detected = true;
                     break;
 
                 default:
-                    std::cout << "Thread " << i << " has an unhandled termination state" << std::endl;
+                    verbose << "Thread " << i << " has an unhandled termination state" << std::endl;
                     break;
                 }
             }
             else
             {
                 exception_detected = true;
-                std::cout << "Thread " << i << " is stuck" << std::endl;
+                verbose << "Thread " << i << " is stuck" << std::endl;
             }
         }
 

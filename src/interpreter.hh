@@ -3,6 +3,27 @@
 
 namespace gitmem
 {
+    /* For debug printing */
+    inline struct Verbose
+    {
+        bool enabled = false;
+
+        template <typename T>
+        const Verbose& operator<<(const T &msg) const {
+            if (enabled) {
+                std::cout << msg;
+            }
+            return *this;
+        }
+
+        const Verbose& operator<<(std::ostream& (*manip)(std::ostream&)) const {
+            if (enabled) {
+                std::cout << manip;
+            }
+            return *this;
+        }
+    } verbose;
+
     /* A 'Global' is a structure to capture the current synchronising objects
      * representation of a global variable. The structure is the current value,
      * the current commit id for the variable, and the history of commited ids.
