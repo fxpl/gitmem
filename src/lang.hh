@@ -6,8 +6,6 @@ namespace gitmem
   using namespace trieste;
 
   Reader reader();
-  int interpret(const Node ast);
-  int interpret_interactive(const Node ast);
 
   // Variables
   inline const auto Reg = TokenDef("reg", flag::print);

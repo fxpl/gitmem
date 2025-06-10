@@ -22,6 +22,8 @@ add_executable(gitmem
   src/passes/statements.cc
   src/passes/check_refs.cc
   src/interpreter.cc
+  src/debugger.cc
+  src/model_checker.cc
 )
 
 add_executable(gitmem_trieste

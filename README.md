@@ -24,13 +24,16 @@ You can test if the build was successful by running the following
 command in the `build` directory:
 
 ```
-./gitmem_trieste test
+./gitmem -e ../examples/race_condition.gm
 ```
 
 The build script creates two executables:
 
 - `gitmem` parses source code and runs the interpreter in order to
-  create an execution diagram (work in progress).
+  create an execution diagram (work in progress). You can run the
+  interpreter interactively with the `-i` flag, and automatically
+  explore all possible traces with the `-e` flag (showing failing
+  runs).
 - `gitmem_trieste` is the default
   [Trieste](https://github.com/microsoft/Trieste) driver which can
   be used to inspect the parsed source code and test the parser.
