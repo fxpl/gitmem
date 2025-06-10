@@ -4,11 +4,13 @@
 
 namespace gitmem
 {
+    /** A command that can be parsed by the debugger. Some commands store a
+     * ThreadID argument. */
     struct Command
     {
         enum
         {
-            Step,    // Run to next sync point
+            Step,    // Run a specified thread to next sync point
             Finish,  // Finish the rest of the program
             Restart, // Start the program from the beginning
             List,    // List all threads
@@ -16,9 +18,11 @@ namespace gitmem
             Info,    // Show commands
             Skip,    // Do nothing, used for invalid commands
         } cmd;
-        size_t argument = 0;
+        ThreadID argument = 0;
     };
 
+    /** Print the state of a thread, including its local and global variables,
+     * and the current position in the program. */
     void show_thread(const Thread &thread, size_t tid)
     {
         std::cout << "---- Thread " << tid << std::endl;
@@ -70,6 +74,9 @@ namespace gitmem
         }
     }
 
+    /** Show the global context, including locks and non-completed threads. If
+     * show_all is true, show all threads, even those that have terminated
+     * normally. */
     void show_global_context(const GlobalContext& gctx, bool show_all = false)
     {
         auto& threads = gctx.threads;
@@ -108,6 +115,8 @@ namespace gitmem
         }
     }
 
+    /** Parse a command. See the help string for the 'Info' command for details.
+     */
     Command parse_command(std::string& input)
     {
         auto command = std::string(input);
@@ -160,6 +169,8 @@ namespace gitmem
         }
     }
 
+    /** Interpret the AST in an interactive way, letting the user choose which
+     * thread to schedule next. */
     int interpret_interactive(const Node ast)
     {
         Node starting_block = ast / File / Block;

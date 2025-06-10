@@ -4,7 +4,15 @@ namespace gitmem
 {
     using namespace trieste;
 
-    // TODO: Document
+    /**
+     * A TraceNode represents a point in the space of possible schedulings. A
+     * path in a tree of TraceNodes represents a scheduling, with the thread ID
+     * of each node being the thread that was scheduled at that point. When
+     * there are no more children to explore, or when one thread has crashed,
+     * the TraceNode is marked as complete so that the next run will not explore
+     * it again.
+     *
+     */
     struct TraceNode
     {
         size_t tid_;
@@ -20,6 +28,24 @@ namespace gitmem
         }
     };
 
+    template<typename S>
+    void print_traces(S& stream, const std::vector<std::vector<ThreadID>> &traces)
+    {
+        for (const auto &trace : traces)
+        {
+            for (const auto &tid : trace)
+            {
+                stream << tid << " ";
+            }
+            stream << std::endl;
+        }
+    }
+
+    /**
+     * Explore all possible execution paths of the program, printing one trace
+     * for each distinct final state that led to an error.
+     *
+     */
     int model_check(const Node ast)
     {
         Node starting_block = ast / File / Block;
@@ -36,22 +62,11 @@ namespace gitmem
         auto current_trace = std::vector<size_t>{0}; // Start with the main thread
         run_thread_to_sync(gctx, cursor->tid_, gctx.threads[cursor->tid_]);
 
-        if (main_thread->terminated)
-        {
-            // If the main thread is already terminated, we don't need to explore further
-            final_states.push_back(gctx);
-            traces.push_back(current_trace);
-            cursor->complete = true;
-            if (*main_thread->terminated != TerminationStatus::completed)
-                bad_traces.push_back(current_trace);
-        }
-
         while (!root->complete)
         {
-            // Step through the trace
             while (!cursor->children.empty() && !cursor->children.back()->complete)
             {
-                // We have a child that is not complete, we can extend the trace
+                // We have a child that is not complete, we can extend that trace
                 cursor = cursor->children.back();
                 current_trace.push_back(cursor->tid_);
                 run_thread_to_sync(gctx, cursor->tid_, gctx.threads[cursor->tid_]);
@@ -80,16 +95,10 @@ namespace gitmem
                             cursor->complete = true;
                         }
                     }
-                    else if (std::get<ProgressStatus>(prog_or_term) == ProgressStatus::progress)
+                    else if (std::get<ProgressStatus>(prog_or_term) == ProgressStatus::progress
+                             || gctx.threads.size() > no_threads)
                     {
                         // Thread made progress, we can continue
-                        made_progress = true;
-                        cursor = cursor->extend(i);
-                        current_trace.push_back(i);
-                    }
-                    else if (gctx.threads.size() > no_threads)
-                    {
-                        // Thread spawned a new thread, which counts as progress
                         made_progress = true;
                         cursor = cursor->extend(i);
                         current_trace.push_back(i);
@@ -99,7 +108,7 @@ namespace gitmem
 
             if (!made_progress)
             {
-                // No further threads made progress, we can stop here
+                // No threads made progress, we can stop here
                 cursor->complete = true;
             }
 
@@ -113,7 +122,7 @@ namespace gitmem
 
             if (all_completed || any_crashed)
             {
-                // Remember final result if it is new
+                // Remember final state if it is new
                 if (!std::any_of(final_states.begin(), final_states.end(),
                                  [&gctx](const GlobalContext &state)
                                  { return state == gctx; }))
@@ -127,8 +136,9 @@ namespace gitmem
                 cursor->complete = true;
             }
 
-            if (cursor->complete)
+            if (cursor->complete && !root->complete)
             {
+                // Reset the cursor to the root and start a new trace
                 ThreadContext new_starting_ctx = {};
                 auto new_main_thread = std::make_shared<Thread>(new_starting_ctx, starting_block);
                 gctx = {{new_main_thread}, {}, {}};
@@ -142,26 +152,12 @@ namespace gitmem
 
         logging::Info log;
         log << "Found a total of " << traces.size() << " trace(s) with distinct final states:" << std::endl;
-        for (auto &trace : traces)
-        {
-            for (size_t i = 0; i < trace.size(); ++i)
-            {
-                log << trace[i] << " ";
-            }
-            log << std::endl;
-        }
+        print_traces(log, traces);
 
         if (!bad_traces.empty())
         {
             std::cout << "Found " << bad_traces.size() << " trace(s) with errors:" << std::endl;
-            for (auto &bad_trace : bad_traces)
-            {
-                for (auto tid : bad_trace)
-                {
-                    std::cout << tid << " ";
-                }
-                std::cout << std::endl;
-            }
+            print_traces(std::cout, bad_traces);
             return 1;
         }
 
