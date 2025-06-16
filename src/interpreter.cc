@@ -27,6 +27,11 @@ namespace gitmem
         return s == Join || s == Lock || s == Unlock;
     }
 
+    bool is_syncing(Thread &thread)
+    {
+        return is_syncing(thread.block->at(thread.pc));
+    }
+
     /* At a commit point, walk through all the versioned variables and see if
      * they have a pending commit, if so commit the value by appending to
      * the variables history.
@@ -365,7 +370,7 @@ namespace gitmem
      * it terminates. Report whether the thread was able to progress or not, or
      * whether it terminated.
      */
-    std::variant<ProgressStatus, TerminationStatus> run_thread_to_sync(GlobalContext& gctx, const ThreadID tid, std::shared_ptr<Thread> thread)
+    std::variant<ProgressStatus, TerminationStatus> run_single_thread_to_sync(GlobalContext& gctx, const ThreadID tid, std::shared_ptr<Thread> thread)
     {
         if (thread->terminated) {
             return *(thread->terminated);
@@ -400,6 +405,35 @@ namespace gitmem
         return TerminationStatus::completed;
     }
 
+    /**
+     * Run a thread to the next sync point, including any threads spawned by that thread
+     */
+    std::variant<ProgressStatus, TerminationStatus>
+    progress_thread(GlobalContext &gctx, const ThreadID tid, std::shared_ptr<Thread> thread)
+    {
+        auto no_threads = gctx.threads.size();
+        auto prog_or_term = run_single_thread_to_sync(gctx, tid, thread);
+
+        bool any_progress = std::holds_alternative<ProgressStatus>(prog_or_term) &&
+                            std::get<ProgressStatus>(prog_or_term) == ProgressStatus::progress;
+        for (size_t i = no_threads; i < gctx.threads.size(); ++i)
+        {
+            // If there are new threads, we can run them to sync as well
+            any_progress = true;
+            auto new_thread = gctx.threads[i];
+            if (!is_syncing(*new_thread))
+            {
+                verbose << "==== Thread " << i << " (spawn) ====" << std::endl;
+                progress_thread(gctx, i, new_thread);
+            }
+        }
+
+        if (std::holds_alternative<TerminationStatus>(prog_or_term))
+            return prog_or_term;
+
+        return any_progress ? ProgressStatus::progress : ProgressStatus::no_progress;
+    }
+
     /* Try to evaluate all threads until a sync point or termination point
      */
     std::variant<ProgressStatus, TerminationStatus> run_threads_to_sync(GlobalContext& gctx)
@@ -413,7 +447,7 @@ namespace gitmem
             auto thread = gctx.threads[i];
             if (!thread->terminated)
             {
-                auto prog_or_term = run_thread_to_sync(gctx, i, thread);
+                auto prog_or_term = run_single_thread_to_sync(gctx, i, thread);
                 if (ProgressStatus* prog = std::get_if<ProgressStatus>(&prog_or_term))
                 {
                     any_progress |= *prog;

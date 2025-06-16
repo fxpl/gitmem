@@ -21,6 +21,21 @@ namespace gitmem
         ThreadID argument = 0;
     };
 
+    void show_global(const std::string &var, const Global &global)
+    {
+        std::cout << var << " = " << global.val
+                  << " [" << (global.commit ? std::to_string(*global.commit) : "_") << "; ";
+        for (size_t i = 0; i < global.history.size(); ++i)
+        {
+            std::cout << global.history[i];
+            if (i < global.history.size() - 1)
+            {
+                std::cout << ", ";
+            }
+        }
+        std::cout << "]" << std::endl;
+    }
+
     /** Print the state of a thread, including its local and global variables,
      * and the current position in the program. */
     void show_thread(const Thread &thread, size_t tid)
@@ -39,17 +54,7 @@ namespace gitmem
         {
             for (auto &[var, val] : thread.ctx.globals)
             {
-                std::cout << var << " = " << val.val
-                          << " [" << (val.commit ? std::to_string(*val.commit) : "_") << "; ";
-                for (size_t i = 0; i < val.history.size(); ++i)
-                {
-                    std::cout << val.history[i];
-                    if (i < val.history.size() - 1)
-                    {
-                        std::cout << ", ";
-                    }
-                }
-                std::cout << "]" << std::endl;
+                show_global(var, val);
             }
             std::cout << "--" << std::endl;
         }
@@ -78,6 +83,24 @@ namespace gitmem
         }
     }
 
+    void show_lock(const std::string &lock_name, const struct Lock &lock)
+    {
+        std::cout << lock_name << ": ";
+        if (lock.owner)
+        {
+            std::cout << "held by thread " << *lock.owner;
+        }
+        else
+        {
+            std::cout << "<free>";
+        }
+        std::cout << std::endl;
+        for (auto &[var, global] : lock.globals)
+        {
+            show_global(var, global);
+        }
+    }
+
     /** Show the global context, including locks and non-completed threads. If
      * show_all is true, show all threads, even those that have terminated
      * normally. */
@@ -102,16 +125,7 @@ namespace gitmem
 
             for (const auto &[lock_name, lock] : gctx.locks)
             {
-                std::cout << lock_name << ": ";
-                if (lock.owner)
-                {
-                    std::cout << *lock.owner;
-                }
-                else
-                {
-                    std::cout << "<free>";
-                }
-                std::cout << std::endl;
+                show_lock(lock_name, lock);
             }
 
             if (gctx.locks.size() > 0)
@@ -235,7 +249,7 @@ namespace gitmem
                     continue;
                 }
 
-                auto prog_or_term = run_thread_to_sync(gctx, tid, thread);
+                auto prog_or_term = progress_thread(gctx, tid, thread);
                 if (ProgressStatus *prog = std::get_if<ProgressStatus>(&prog_or_term))
                 {
                     if (!*prog)

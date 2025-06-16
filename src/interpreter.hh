@@ -150,6 +150,7 @@ namespace gitmem
 
     // Internal functions
     int run_threads(GlobalContext&);
+
     std::variant<ProgressStatus, TerminationStatus>
-    run_thread_to_sync(GlobalContext&, const ThreadID, std::shared_ptr<Thread>);
+    progress_thread(GlobalContext&, const ThreadID, std::shared_ptr<Thread>);
 }
