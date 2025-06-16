@@ -52,8 +52,7 @@ namespace gitmem
     {
         size_t length = std::min(h1.size(), h2.size());
 
-        bool conflict = false;
-        for (size_t i = 0; i < length && !conflict; i++)
+        for (size_t i = 0; i < length; i++)
         {
             if (h1[i] != h2[i]) return std::pair<Commit, Commit>{h1[i], h2[i]};
         }
@@ -135,7 +134,11 @@ namespace gitmem
             auto var = std::string(expr->location().view());
             if (ctx.globals.contains(var))
             {
-                return ctx.globals[var].val;
+                auto& global = ctx.globals[var];
+                auto commit = global.commit.value_or(global.history.back());
+                auto source_node = gctx.commit_map[commit];
+                thread_append_node<graph::Read>(ctx, var, global.val, commit, source_node);
+                return global.val;
             }
             else
             {
@@ -153,17 +156,6 @@ namespace gitmem
             commit(ctx.globals);
             ThreadID tid = gctx.threads.size();
             auto node = std::make_shared<graph::Start>(tid);
-
-            Globals new_globals;
-            for (const auto& [k, v] : ctx.globals)
-            {
-                CommitHistory new_history;
-                for (const auto& h : v.history) {
-                    new_history.push_back(h);
-                }
-
-                new_globals[k] = {v.val, std::nullopt, std::move(new_history) };
-            }
 
             ThreadContext new_ctx = { Locals(), ctx.globals, node };
             gctx.threads.push_back(std::make_shared<Thread>(new_ctx, e / Block));
@@ -225,7 +217,7 @@ namespace gitmem
                     global.commit = gctx.uuid++;
                     verbose <<  "Set global '" << lhs->location().view() << "' to " << *val <<  " with id " << *(global.commit) << std::endl;
 
-                    auto node = thread_append_node<graph::Assign>(ctx, var, global.val, *global.commit);
+                    auto node = thread_append_node<graph::Write>(ctx, var, global.val, *global.commit);
                     gctx.commit_map[*(global.commit)] = node;
                 }
                 else
@@ -302,8 +294,13 @@ namespace gitmem
 
             lock.owner = tid;
             commit(ctx.globals);
-            if (pull(ctx.globals, lock.globals))
+            if(auto conflict = pull(ctx.globals, lock.globals))
             {
+                using graph::Node;
+                auto [s1, s2] = conflict->commits;
+                auto sources = std::pair<std::shared_ptr<Node>, std::shared_ptr<Node>>{gctx.commit_map[s1], gctx.commit_map[s2]};
+                auto graph_conflict = graph::Conflict(conflict->var, sources);
+                thread_append_node<graph::Lock>(ctx, var, lock.last, graph_conflict);
                 return TerminationStatus::datarace_exception;
             }
 
@@ -505,6 +502,7 @@ namespace gitmem
             else
             {
                 exception_detected = true;
+                thread_append_node<graph::End>(thread->ctx);
                 verbose << "Thread " << i << " is stuck" << std::endl;
             }
         }
