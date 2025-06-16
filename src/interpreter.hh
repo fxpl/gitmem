@@ -1,5 +1,6 @@
 #include <trieste/trieste.h>
 #include "lang.hh"
+#include "graph.hh"
 
 namespace gitmem
 {
@@ -54,6 +55,7 @@ namespace gitmem
     {
         Locals locals;
         Globals globals;
+        std::shared_ptr<graph::Node> tail;
     };
 
     using ThreadStatus = std::optional<TerminationStatus>;
@@ -89,6 +91,7 @@ namespace gitmem
     struct Lock {
         Globals globals;
         std::optional<ThreadID> owner = std::nullopt;
+        std::shared_ptr<graph::Node> last;
     };
 
     using Threads = std::vector<std::shared_ptr<Thread>>;
@@ -99,6 +102,7 @@ namespace gitmem
         Threads threads;
         Locks locks;
         NodeMap<size_t> cache;
+        std::unordered_map<Commit, std::shared_ptr<graph::Node>> commit_map;
         Commit uuid = 0;
 
         bool operator==(const GlobalContext& other) const {

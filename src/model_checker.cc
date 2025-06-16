@@ -49,7 +49,8 @@ namespace gitmem
     int model_check(const Node ast)
     {
         Node starting_block = ast / File / Block;
-        ThreadContext starting_ctx = {};
+        auto entry_node = std::make_shared<graph::Start>(0);
+        ThreadContext starting_ctx = {{}, {}, entry_node};
         auto main_thread = std::make_shared<Thread>(starting_ctx, starting_block);
         GlobalContext gctx{{main_thread}, {}, {}};
 
@@ -143,7 +144,8 @@ namespace gitmem
             {
                 // Reset the cursor to the root and start a new trace
                 verbose << std::endl << "Restarting trace..." << std::endl;
-                ThreadContext new_starting_ctx = {};
+                auto new_node = std::make_shared<graph::Start>(0);
+                ThreadContext new_starting_ctx = {{}, {}, new_node};
                 auto new_main_thread = std::make_shared<Thread>(new_starting_ctx, starting_block);
                 gctx = {{new_main_thread}, {}, {}};
 

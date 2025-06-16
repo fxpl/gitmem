@@ -35,8 +35,8 @@ namespace gitmem
         for (auto& [var, global] : globals) {
             if (global.commit)
             {
-                global.history.push_back(global.commit.value());
-                verbose << "Committed global '" << var << "' with id " << global.commit.value() << std::endl;
+                global.history.push_back(*global.commit);
+                verbose << "Committed global '" << var << "' with id " << *global.commit << std::endl;
                 global.commit.reset();
             }
         }
@@ -48,34 +48,40 @@ namespace gitmem
      * A conflict between two commit histories exists if neither history is a
      * prefix of the other.
      */
-    bool has_conflict(CommitHistory& h1, CommitHistory& h2)
+    std::optional<std::pair<Commit, Commit>> has_conflict(CommitHistory& h1, CommitHistory& h2)
     {
         size_t length = std::min(h1.size(), h2.size());
 
-        bool conflict = false;
-        for (size_t i = 0; i < length && !conflict; ++i)
+        for (size_t i = 0; i < length; i++)
         {
-            conflict |= (h1[i] != h2[i]);
+            if (h1[i] != h2[i]) return std::pair<Commit, Commit>{h1[i], h2[i]};
         }
 
-        return conflict;
+        return std::nullopt;
     }
+
+    struct Conflict
+    {
+        std::string var;
+        std::pair<Commit, Commit> commits;
+    };
 
     /* Walk through all the global versions from source and update the versions
      * in destination to be the most up-to-date version (this could come from
      * either source or destination). This means destination will now also
      * include variables it previously did not know about.
      */
-    bool pull(Globals &dst, Globals &src) {
+    std::optional<Conflict> pull(Globals &dst, Globals &src) {
         for (auto& [var, global] : src) {
             if (dst.contains(var))
             {
                 auto& src_var = src[var];
                 auto& dst_var = dst[var];
-                if (has_conflict(src_var.history, dst_var.history))
+                if (auto conflict = has_conflict(src_var.history, dst_var.history))
                 {
-                    verbose << "A data race on '" << var << "' was detected" << std::endl;
-                    return false;
+                    auto [s1, s2] = *conflict;
+                    verbose << "A data race on '" << var << "' was detected from commits " << s1 << " and " << s2 << std::endl;
+                    return Conflict(var, *conflict);
                 }
                 else if (src_var.history.size() > dst_var.history.size())
                 {
@@ -90,7 +96,17 @@ namespace gitmem
                 dst[var].history = src[var].history;
             }
         }
-        return true;
+        return std::nullopt;
+    }
+
+    template<typename T, typename...Args>
+    std::shared_ptr<T> thread_append_node(ThreadContext& ctx, Args&&...args)
+    {
+        assert(ctx.tail);
+        auto node = std::make_shared<T>(std::forward<Args>(args)...);
+        ctx.tail->next = node;
+        ctx.tail = node;
+        return node;
     }
 
     /* Evaluating an expression either returns the result of the expression or
@@ -118,7 +134,11 @@ namespace gitmem
             auto var = std::string(expr->location().view());
             if (ctx.globals.contains(var))
             {
-                return ctx.globals[var].val;
+                auto& global = ctx.globals[var];
+                auto commit = global.commit.value_or(global.history.back());
+                auto source_node = gctx.commit_map[commit];
+                thread_append_node<graph::Read>(ctx, var, global.val, commit, source_node);
+                return global.val;
             }
             else
             {
@@ -135,8 +155,13 @@ namespace gitmem
             // copy the global state to the spawned thread
             commit(ctx.globals);
             ThreadID tid = gctx.threads.size();
-            ThreadContext new_ctx = { Locals(), ctx.globals };
+            auto node = std::make_shared<graph::Start>(tid);
+
+            ThreadContext new_ctx = { Locals(), ctx.globals, node };
             gctx.threads.push_back(std::make_shared<Thread>(new_ctx, e / Block));
+
+            thread_append_node<graph::Spawn>(ctx, tid, node);
+
             return tid;
         }
         else if (e == Eq)
@@ -191,6 +216,9 @@ namespace gitmem
                     global.val = *val;
                     global.commit = gctx.uuid++;
                     verbose <<  "Set global '" << lhs->location().view() << "' to " << *val <<  " with id " << *(global.commit) << std::endl;
+
+                    auto node = thread_append_node<graph::Write>(ctx, var, global.val, *global.commit);
+                    gctx.commit_map[*(global.commit)] = node;
                 }
                 else
                 {
@@ -232,10 +260,17 @@ namespace gitmem
                 commit(ctx.globals);
                 commit(thread->ctx.globals);
                 verbose << "Pulling from thread " <<  result << std::endl;
-                if(!pull(ctx.globals, thread->ctx.globals))
+                if(auto conflict = pull(ctx.globals, thread->ctx.globals))
                 {
+                    using graph::Node;
+                    auto [s1, s2] = conflict->commits;
+                    auto sources = std::pair<std::shared_ptr<Node>, std::shared_ptr<Node>>{gctx.commit_map[s1], gctx.commit_map[s2]};
+                    auto graph_conflict = graph::Conflict(conflict->var, sources);
+                    thread_append_node<graph::Join>(ctx, result, thread->ctx.tail, graph_conflict);
                     return TerminationStatus::datarace_exception;
                 }
+
+                thread_append_node<graph::Join>(ctx, result, thread->ctx.tail);
             }
             else
             {
@@ -259,10 +294,17 @@ namespace gitmem
 
             lock.owner = tid;
             commit(ctx.globals);
-            if (!pull(ctx.globals, lock.globals))
+            if(auto conflict = pull(ctx.globals, lock.globals))
             {
+                using graph::Node;
+                auto [s1, s2] = conflict->commits;
+                auto sources = std::pair<std::shared_ptr<Node>, std::shared_ptr<Node>>{gctx.commit_map[s1], gctx.commit_map[s2]};
+                auto graph_conflict = graph::Conflict(conflict->var, sources);
+                thread_append_node<graph::Lock>(ctx, var, lock.last, graph_conflict);
                 return TerminationStatus::datarace_exception;
             }
+
+            thread_append_node<graph::Lock>(ctx, var, lock.last);
 
             verbose << "Locked " << var << std::endl;
 
@@ -282,12 +324,14 @@ namespace gitmem
             {
                 return TerminationStatus::unlock_exception;
             }
-            else
-            {
-                lock.globals = ctx.globals;
-                lock.owner.reset();
-                verbose << "Unlocked " << var << std::endl;
-            }
+
+            lock.globals = ctx.globals;
+            lock.owner.reset();
+
+            thread_append_node<graph::Unlock>(ctx, var);
+            lock.last = ctx.tail;
+
+            verbose << "Unlocked " << var << std::endl;
         }
         else if (s == Assert)
         {
@@ -379,6 +423,7 @@ namespace gitmem
                     // We could return termination status of any error here and stop
                     // at the first error
                     thread->terminated = std::get<TerminationStatus>(prog_or_term);
+                    thread_append_node<graph::End>(thread->ctx);
                     any_progress |= ProgressStatus::progress;
                 }
 
@@ -457,6 +502,7 @@ namespace gitmem
             else
             {
                 exception_detected = true;
+                thread_append_node<graph::End>(thread->ctx);
                 verbose << "Thread " << i << " is stuck" << std::endl;
             }
         }
@@ -467,10 +513,16 @@ namespace gitmem
     int interpret(const Node ast)
     {
         Node starting_block = ast / File / Block;
-        ThreadContext starting_ctx = {};
+        auto entry_node = std::make_shared<graph::Start>(0);
+        ThreadContext starting_ctx = {{}, {}, entry_node};
         auto main_thread = std::make_shared<Thread>(starting_ctx, starting_block);
-
         GlobalContext gctx {{main_thread}, {}, {}};
-        return run_threads(gctx);
+
+        auto result = run_threads(gctx);
+
+        graph::MermaidPrinter m("graph.md");
+        m.visit(entry_node.get());
+
+        return result;
     }
 }
