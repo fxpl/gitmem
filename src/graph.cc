@@ -18,7 +18,7 @@ namespace gitmem
     {
       file << "subgraph Thread " << n->id << std::endl;
       file << "\tdirection TB" << std::endl;
-      file << "\t" << (size_t)n << "(start)" << std::endl;
+      file << "\t" << (size_t)n << "@{ shape: circle, label: \"start\" }" << std::endl;
 
       assert(n->next);
       if (const Node* next = n->next.get())
@@ -31,7 +31,7 @@ namespace gitmem
     void MermaidPrinter::visitEnd(const End* n)
     {
       assert(!n->next);
-      file << "\t" << (size_t)n << "(end)" << std::endl;
+      file << "\t" << (size_t)n << "@{ shape: dbl-circ, label: \"end\" }" << std::endl;
       file << "end" << std::endl;
     }
 
@@ -51,13 +51,16 @@ namespace gitmem
     {
       file << "\t" << (size_t)n << "(read " << n->var << " = " << n->value << " : #" << n->id << ")" << std::endl;
       assert(n->sauce);
-      file << "\t" << (size_t)n << " -.rf.-> " << (size_t)n->sauce.get() << std::endl;
 
       if (const Node* next = n->next.get())
       {
         file << "\t" << (size_t)n << " --> " << (size_t)next << std::endl;
         next->accept(this);
       }
+
+      // These edges have to be printed after the thread subgraph otherwise they
+      // are likely to move nodes around between subgraphs
+      file << "\t" << (size_t)n << " -.rf.-> " << (size_t)n->sauce.get() << std::endl;
     }
 
     void MermaidPrinter::visitSpawn(const Spawn* n)
@@ -71,6 +74,8 @@ namespace gitmem
         next->accept(this);
       }
 
+      // These edges have to be printed after the thread subgraph otherwise they
+      // are likely to move nodes around between subgraphs
       if (const Node* spawned = n->spawned.get())
       {
         file << "\t" << (size_t)n << " --> " << (size_t)spawned << std::endl;
@@ -89,6 +94,8 @@ namespace gitmem
         next->accept(this);
       }
 
+      // These edges have to be printed after the thread subgraph otherwise they
+      // are likely to move nodes around between subgraphs
       if (const Node* joinee = n->joinee.get())
       {
         file << "\t" << (size_t)joinee << " --> " << (size_t)n  << std::endl;
@@ -114,6 +121,8 @@ namespace gitmem
         next->accept(this);
       }
 
+      // These edges have to be printed after the thread subgraph otherwise they
+      // are likely to move nodes around between subgraphs
       if (const Node* ordered_after = n->ordered_after.get())
       {
         file << "\t" << (size_t)ordered_after << " -->" << (size_t)n << std::endl;

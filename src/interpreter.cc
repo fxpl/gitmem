@@ -513,16 +513,15 @@ namespace gitmem
     int interpret(const Node ast)
     {
         Node starting_block = ast / File / Block;
-        ThreadContext starting_ctx = {};
-        auto node = std::make_shared<graph::Start>(0);
-        starting_ctx.tail = node;
+        auto entry_node = std::make_shared<graph::Start>(0);
+        ThreadContext starting_ctx = {{}, {}, entry_node};
         auto main_thread = std::make_shared<Thread>(starting_ctx, starting_block);
         GlobalContext gctx {{main_thread}, {}, {}};
 
         auto result = run_threads(gctx);
 
         graph::MermaidPrinter m("graph.md");
-        m.visit(node.get());
+        m.visit(entry_node.get());
 
         return result;
     }

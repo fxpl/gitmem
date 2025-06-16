@@ -163,6 +163,7 @@ namespace gitmem {
       MermaidPrinter(std::string filename) noexcept;
     private:
       std::ofstream file;
+      bool first_pass = true;
     };
 
   }
