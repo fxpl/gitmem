@@ -152,7 +152,6 @@ namespace graph {
 
   void GraphvizPrinter::visit(const Node* n) {
     file << "digraph G {" << std::endl;
-    file << "bgcolor=darkgray" << std::endl;
     n->accept(this);
     file << "}" << std::endl;
   }
@@ -169,7 +168,7 @@ namespace graph {
 
   void GraphvizPrinter::visitEnd(const End* n) {
     assert(!n->next);
-    emitNode(n, "", "shape=doublecircle width=.2");
+    emitNode(n, "", "shape=doublecircle width=.2 style=empty");
     file << "}" << std::endl;
   }
 
