@@ -152,6 +152,7 @@ namespace graph {
 
   void GraphvizPrinter::visit(const Node* n) {
     file << "digraph G {" << std::endl;
+    file << "bgcolor=darkgray" << std::endl;
     n->accept(this);
     file << "}" << std::endl;
   }
