@@ -43,7 +43,7 @@ namespace gitmem {
       virtual void visitJoin(const Join*) = 0;
       virtual void visitLock(const Lock*) = 0;
       virtual void visitUnlock(const Unlock*) = 0;
-      void visit(const Node* n) { n->accept(this); }
+      virtual void visit(const Node* n) { n->accept(this); }
     };
 
     struct Start : Node
@@ -163,8 +163,33 @@ namespace gitmem {
       MermaidPrinter(std::string filename) noexcept;
     private:
       std::ofstream file;
-      bool first_pass = true;
+
+      void emitNode(const Node* n, const std::string& label, const std::string& shape = "");
+      void emitEdge(const Node* from, const Node* to, const std::string& style = "");
+      void emitConflict(const Node* n, const Conflict& conflict);
     };
 
+    struct GraphvizPrinter : Visitor {
+      void visitStart(const Start*) override;
+      void visitEnd(const End*) override;
+      void visitWrite(const Write*) override;
+      void visitRead(const Read*) override;
+      void visitSpawn(const Spawn*) override;
+      void visitJoin(const Join*) override;
+      void visitLock(const Lock*) override;
+      void visitUnlock(const Unlock*) override;
+      void visit(const Node* n) override;
+
+      GraphvizPrinter(std::string filename) noexcept;
+    private:
+      std::ofstream file;
+      void emitNode(const Node* n, const std::string& label, const std::string& style = "");
+      void emitEdge(const Node* from, const Node* to, const std::string& label, const std::string& style = "");
+      void emitProgramOrderEdge(const Node* from, const Node* to);
+      void emitReadFromEdge(const Node* from, const Node* to);
+      void emitConflictEdge(const Node* from, const Node* to);
+      void emitSyncEdge(const Node* from, const Node* to);
+      void emitConflict(const Node* n, const Conflict& conflict);
+    };
   }
 }
