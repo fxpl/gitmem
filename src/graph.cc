@@ -132,11 +132,11 @@ namespace graph {
   }
 
   void GraphvizPrinter::emitConflictEdge(const Node* from, const Node* to) {
-    emitEdge(from, to, "", "style=dashed, color=red, constraint=false");
+    emitEdge(from, to, "race", "style=dashed, color=red, constraint=false");
   }
 
   void GraphvizPrinter::emitSyncEdge(const Node* from, const Node* to) {
-    emitEdge(from, to, "", "constraint=false");
+    emitEdge(from, to, "sync", "style=dashed, constraint=false");
   }
 
   void GraphvizPrinter::emitConflict(const Node* n, const Conflict& conflict) {
