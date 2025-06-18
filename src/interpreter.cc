@@ -2,6 +2,8 @@
 #include <variant>
 
 #include "interpreter.hh"
+#include "mermaid.hh"
+#include "graphviz.hh"
 
 namespace gitmem
 {
@@ -554,8 +556,10 @@ namespace gitmem
 
         auto result = run_threads(gctx);
 
-        graph::MermaidPrinter m("graph.md");
+        graph::GraphvizPrinter gv("graph.dot");
+        graph::MermaidPrinter m("graph.mdd");
         m.visit(entry_node.get());
+        gv.visit(entry_node.get());
 
         return result;
     }

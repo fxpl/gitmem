@@ -43,7 +43,7 @@ namespace gitmem {
       virtual void visitJoin(const Join*) = 0;
       virtual void visitLock(const Lock*) = 0;
       virtual void visitUnlock(const Unlock*) = 0;
-      void visit(const Node* n) { n->accept(this); }
+      virtual void visit(const Node* n) { n->accept(this); }
     };
 
     struct Start : Node
@@ -149,22 +149,5 @@ namespace gitmem {
         v->visitUnlock(this);
       }
     };
-
-    struct MermaidPrinter : Visitor {
-      void visitStart(const Start*) override;
-      void visitEnd(const End*) override;
-      void visitWrite(const Write*) override;
-      void visitRead(const Read*) override;
-      void visitSpawn(const Spawn*) override;
-      void visitJoin(const Join*) override;
-      void visitLock(const Lock*) override;
-      void visitUnlock(const Unlock*) override;
-
-      MermaidPrinter(std::string filename) noexcept;
-    private:
-      std::ofstream file;
-      bool first_pass = true;
-    };
-
   }
 }
