@@ -19,6 +19,7 @@ namespace graph {
   }
 
   void MermaidPrinter::emitEdge(const Node* from, const Node* to, const std::string& style) {
+    if(!from || !to) return;
     file << "\t" << (size_t)from;
     if (!style.empty()) file << " -." << style << ".-> ";
     else file << " --> ";
@@ -38,13 +39,24 @@ namespace graph {
     file << "flowchart TB" << std::endl;
   }
 
+  void MermaidPrinter::visitProgramOrder(const Node* n)
+  {
+    if(n)
+    {
+      n->accept(this);
+    }
+    else
+    {
+      file << "end" << std::endl;
+    }
+  }
+
   void MermaidPrinter::visitStart(const Start* n) {
     file << "subgraph Thread " << n->id << std::endl;
     file << "\tdirection TB" << std::endl;
     emitNode(n, "start", "circle");
-    assert(n->next);
     emitEdge(n, n->next.get());
-    n->next->accept(this);
+    visitProgramOrder(n->next.get());
   }
 
   void MermaidPrinter::visitEnd(const End* n) {
@@ -55,9 +67,8 @@ namespace graph {
 
   void MermaidPrinter::visitWrite(const Write* n) {
     emitNode(n, "write " + n->var + " = " + to_string(n->value) + " : #" + std::to_string(n->id));
-    assert(n->next);
     emitEdge(n, n->next.get());
-    n->next->accept(this);
+    visitProgramOrder(n->next.get());
   }
 
   void MermaidPrinter::visitRead(const Read* n) {
@@ -65,16 +76,15 @@ namespace graph {
     assert(n->sauce);
     if (n->next) {
       emitEdge(n, n->next.get());
-      n->next->accept(this);
+      visitProgramOrder(n->next.get());
     }
     emitEdge(n, n->sauce.get(), "rf");
   }
 
   void MermaidPrinter::visitSpawn(const Spawn* n) {
     emitNode(n, "spawn " + std::to_string(n->tid));
-    assert(n->next);
     emitEdge(n, n->next.get());
-    n->next->accept(this);
+    visitProgramOrder(n->next.get());
     if (n->spawned) {
       emitEdge(n, n->spawned.get());
       n->spawned->accept(this);
@@ -83,27 +93,24 @@ namespace graph {
 
   void MermaidPrinter::visitJoin(const Join* n) {
     emitNode(n, "join Thread " + std::to_string(n->tid));
-    assert(n->next);
     emitEdge(n, n->next.get());
-    n->next->accept(this);
+    visitProgramOrder(n->next.get());
     if (n->joinee) emitEdge(n->joinee.get(), n);
     if (n->conflict) emitConflict(n, n->conflict.value());
   }
 
   void MermaidPrinter::visitLock(const Lock* n) {
     emitNode(n, "lock " + n->var);
-    assert(n->next);
     emitEdge(n, n->next.get());
-    n->next->accept(this);
+    visitProgramOrder(n->next.get());
     if (n->ordered_after) emitEdge(n->ordered_after.get(), n);
     if (n->conflict) emitConflict(n, n->conflict.value());
   }
 
   void MermaidPrinter::visitUnlock(const Unlock* n) {
     emitNode(n, "unlock " + n->var);
-    assert(n->next);
     emitEdge(n, n->next.get());
-    n->next->accept(this);
+    visitProgramOrder(n->next.get());
   }
 
   void GraphvizPrinter::emitNode(const Node* n, const std::string& label, const std::string& style) {
@@ -113,6 +120,8 @@ namespace graph {
   }
 
   void GraphvizPrinter::emitEdge(const Node* from, const Node* to, const std::string& label, const std::string& style) {
+    if (!from || !to) return;
+
     file << "\t" << (size_t)from << " -> " << (size_t)to;
     if (!style.empty() || !label.empty()) {
       file << "[";
@@ -156,14 +165,24 @@ namespace graph {
     file << "}" << std::endl;
   }
 
+  void GraphvizPrinter::visitProgramOrder(const Node* n) {
+    if(n)
+    {
+      n->accept(this);
+    }
+    else
+    {
+      file << "}" << std::endl;
+    }
+  }
+
   void GraphvizPrinter::visitStart(const Start* n) {
     file << "subgraph cluster_Thread_" << n->id << "{" << std::endl;
     file << "\tlabel = \"Thread #" << n->id << "\";" << std::endl;
     file << "\tcolor=black;" << std::endl;
     emitNode(n, "", "shape=circle width=.3 style=filled color=black");
-    assert(n->next);
     emitProgramOrderEdge(n, n->next.get());
-    n->next->accept(this);
+    visitProgramOrder(n->next.get());
   }
 
   void GraphvizPrinter::visitEnd(const End* n) {
@@ -173,56 +192,51 @@ namespace graph {
   }
 
   void GraphvizPrinter::visitWrite(const Write* n) {
-    emitNode(n, "write " + n->var + " = " + to_string(n->value) + " : #" + std::to_string(n->id));
-    assert(n->next);
+    emitNode(n, "W" + n->var + " = " + to_string(n->value)); // + " : #" + std::to_string(n->id));
     emitProgramOrderEdge(n, n->next.get());
-    n->next->accept(this);
+    visitProgramOrder(n->next.get());
   }
 
   void GraphvizPrinter::visitRead(const Read* n) {
-    emitNode(n, "read " + n->var + " = " + to_string(n->value) + " : #" + std::to_string(n->id));
+    emitNode(n, "R" + n->var + " = " + to_string(n->value)); // + " : #" + std::to_string(n->id));
     assert(n->sauce);
     if (n->next) {
       emitProgramOrderEdge(n, n->next.get());
-      n->next->accept(this);
+      visitProgramOrder(n->next.get());
     }
     emitReadFromEdge(n, n->sauce.get());
   }
 
   void GraphvizPrinter::visitSpawn(const Spawn* n) {
-    emitNode(n, "spawn Thread " + std::to_string(n->tid));
-    assert(n->next);
+    emitNode(n, "Spawn " + std::to_string(n->tid));
     emitProgramOrderEdge(n, n->next.get());
-    n->next->accept(this);
+    visitProgramOrder(n->next.get());
     if (n->spawned) {
       emitSyncEdge(n, n->spawned.get());
-      n->spawned->accept(this);
+      visitProgramOrder(n->spawned.get());
     }
   }
 
   void GraphvizPrinter::visitJoin(const Join* n) {
-    emitNode(n, "join Thread " + std::to_string(n->tid));
-    assert(n->next);
+    emitNode(n, "Join " + std::to_string(n->tid));
     emitProgramOrderEdge(n, n->next.get());
-    n->next->accept(this);
+    visitProgramOrder(n->next.get());
     if (n->joinee) emitSyncEdge(n->joinee.get(), n);
     if (n->conflict) emitConflict(n, n->conflict.value());
   }
 
   void GraphvizPrinter::visitLock(const Lock* n) {
     emitNode(n, "lock " + n->var);
-    assert(n->next);
     emitProgramOrderEdge(n, n->next.get());
-    n->next->accept(this);
+    visitProgramOrder(n->next.get());
     if (n->ordered_after) emitSyncEdge(n->ordered_after.get(), n);
     if (n->conflict) emitConflict(n, n->conflict.value());
   }
 
   void GraphvizPrinter::visitUnlock(const Unlock* n) {
     emitNode(n, "unlock " + n->var);
-    assert(n->next);
     emitProgramOrderEdge(n, n->next.get());
-    n->next->accept(this);
+    visitProgramOrder(n->next.get());
   }
 
 } // namespace graph

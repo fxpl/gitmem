@@ -167,6 +167,7 @@ namespace gitmem {
       void emitNode(const Node* n, const std::string& label, const std::string& shape = "");
       void emitEdge(const Node* from, const Node* to, const std::string& style = "");
       void emitConflict(const Node* n, const Conflict& conflict);
+      void visitProgramOrder(const Node* n);
     };
 
     struct GraphvizPrinter : Visitor {
@@ -190,6 +191,7 @@ namespace gitmem {
       void emitConflictEdge(const Node* from, const Node* to);
       void emitSyncEdge(const Node* from, const Node* to);
       void emitConflict(const Node* n, const Conflict& conflict);
+      void visitProgramOrder(const Node* n);
     };
   }
 }
