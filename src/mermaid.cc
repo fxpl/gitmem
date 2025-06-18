@@ -33,7 +33,6 @@ namespace graph {
 
   MermaidPrinter::MermaidPrinter(std::string filename) noexcept {
     file.open(filename);
-    file << "```mermaid" << std::endl;
     file << "flowchart TB" << std::endl;
   }
 

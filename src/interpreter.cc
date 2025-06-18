@@ -523,7 +523,7 @@ namespace gitmem
         auto result = run_threads(gctx);
 
         graph::GraphvizPrinter gv("graph.dot");
-        graph::MermaidPrinter m("graph.md");
+        graph::MermaidPrinter m("graph.mdd");
         m.visit(entry_node.get());
         gv.visit(entry_node.get());
 
