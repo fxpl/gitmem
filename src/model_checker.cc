@@ -26,6 +26,11 @@ namespace gitmem
             children.push_back(std::make_shared<TraceNode>(tid));
             return children.back();
         }
+
+        bool is_leaf() const
+        {
+            return children.empty();
+        }
     };
 
     template <typename S>
@@ -44,7 +49,6 @@ namespace gitmem
     /**
      * Explore all possible execution paths of the program, printing one trace
      * for each distinct final state that led to an error.
-     *
      */
     int model_check(const Node ast)
     {
@@ -57,12 +61,13 @@ namespace gitmem
         auto final_states = std::vector<GlobalContext>{};
         auto traces = std::vector<std::vector<size_t>>{};
         auto bad_traces = std::vector<std::vector<size_t>>{};
+        auto deadlocked_traces = std::vector<std::vector<size_t>>{};
 
         const auto root = std::make_shared<TraceNode>(0);
         auto cursor = root;
         auto current_trace = std::vector<size_t>{0}; // Start with the main thread
         verbose << "==== Thread " << cursor->tid_ << " ====" << std::endl;
-        run_thread_to_sync(gctx, cursor->tid_, gctx.threads[cursor->tid_]);
+        progress_thread(gctx, cursor->tid_, gctx.threads[cursor->tid_]);
 
         while (!root->complete)
         {
@@ -72,7 +77,7 @@ namespace gitmem
                 cursor = cursor->children.back();
                 current_trace.push_back(cursor->tid_);
                 verbose << "==== Thread " << cursor->tid_ << " (replay) ====" << std::endl;
-                run_thread_to_sync(gctx, cursor->tid_, gctx.threads[cursor->tid_]);
+                progress_thread(gctx, cursor->tid_, gctx.threads[cursor->tid_]);
             }
 
             // Try to find a thread to schedule next
@@ -86,7 +91,7 @@ namespace gitmem
                 {
                     // Run the thread to the next sync point
                     verbose << "==== Thread " << i << " ====" << std::endl;
-                    auto prog_or_term = run_thread_to_sync(gctx, i, thread);
+                    auto prog_or_term = progress_thread(gctx, i, thread);
                     if (std::holds_alternative<TerminationStatus>(prog_or_term))
                     {
                         // Thread terminated, we can extend the trace
@@ -100,7 +105,7 @@ namespace gitmem
                             cursor->complete = true;
                         }
                     }
-                    else if (std::get<ProgressStatus>(prog_or_term) == ProgressStatus::progress || gctx.threads.size() > no_threads)
+                    else if (std::get<ProgressStatus>(prog_or_term) == ProgressStatus::progress)
                     {
                         // Thread made progress, we can continue
                         made_progress = true;
@@ -124,7 +129,9 @@ namespace gitmem
                             [](const auto &thread)
                             { return thread->terminated && *thread->terminated != TerminationStatus::completed; });
 
-            if (all_completed || any_crashed)
+            bool is_deadlock = !all_completed && !made_progress && cursor->is_leaf();
+
+            if (all_completed || any_crashed || is_deadlock)
             {
                 // Remember final state if it is new
                 if (!std::any_of(final_states.begin(), final_states.end(),
@@ -135,6 +142,8 @@ namespace gitmem
                     traces.push_back(current_trace);
                     if (any_crashed)
                         bad_traces.push_back(current_trace);
+                    else if (is_deadlock)
+                        deadlocked_traces.push_back(current_trace);
                 }
 
                 cursor->complete = true;
@@ -153,7 +162,7 @@ namespace gitmem
                 current_trace.clear();
                 current_trace.push_back(0); // Start with the main thread again
                 verbose << "==== Thread " << cursor->tid_ << " (replay) ====" << std::endl;
-                run_thread_to_sync(gctx, cursor->tid_, gctx.threads[cursor->tid_]);
+                progress_thread(gctx, cursor->tid_, gctx.threads[cursor->tid_]);
             }
         }
 
@@ -164,6 +173,13 @@ namespace gitmem
         {
             std::cout << "Found " << bad_traces.size() << " trace(s) with errors:" << std::endl;
             print_traces(std::cout, bad_traces);
+            return 1;
+        }
+
+        if (!deadlocked_traces.empty())
+        {
+            std::cout << "Found " << deadlocked_traces.size() << " trace(s) leading to deadlock:" << std::endl;
+            print_traces(std::cout, deadlocked_traces);
             return 1;
         }
 

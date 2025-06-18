@@ -1,0 +1,12 @@
+$t1 = spawn {
+    lock l1;
+    lock l2;
+    unlock l2;
+    unlock l1;
+};
+$t2 = spawn {
+    lock l2;
+    lock l1;
+    unlock l1;
+    unlock l2;
+};

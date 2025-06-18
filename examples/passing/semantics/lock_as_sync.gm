@@ -1,6 +1,6 @@
 x = 0;
 lock l1;
-t = spawn {
+$t = spawn {
   assert (x == 0);
   lock l1;
   unlock l1;
