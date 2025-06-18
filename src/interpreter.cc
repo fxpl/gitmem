@@ -2,6 +2,8 @@
 #include <variant>
 
 #include "interpreter.hh"
+#include "mermaid.hh"
+#include "graphviz.hh"
 
 namespace gitmem
 {
