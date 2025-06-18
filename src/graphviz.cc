@@ -85,13 +85,13 @@ namespace graph {
   }
 
   void GraphvizPrinter::visitWrite(const Write* n) {
-    emitNode(n, "W" + n->var + " = " + to_string(n->value)); // + " : #" + std::to_string(n->id));
+    emitNode(n, "W" + n->var + " = " + to_string(n->value));
     emitProgramOrderEdge(n, n->next.get());
     visitProgramOrder(n->next.get());
   }
 
   void GraphvizPrinter::visitRead(const Read* n) {
-    emitNode(n, "R" + n->var + " = " + to_string(n->value)); // + " : #" + std::to_string(n->id));
+    emitNode(n, "R" + n->var + " = " + to_string(n->value));
     assert(n->sauce);
     if (n->next) {
       emitProgramOrderEdge(n, n->next.get());

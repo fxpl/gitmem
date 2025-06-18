@@ -504,7 +504,7 @@ namespace gitmem
             else
             {
                 exception_detected = true;
-                // thread_append_node<graph::End>(thread->ctx);
+                thread_append_node<graph::End>(thread->ctx);
                 verbose << "Thread " << i << " is stuck" << std::endl;
             }
         }
