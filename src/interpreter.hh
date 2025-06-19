@@ -1,6 +1,8 @@
 #include <trieste/trieste.h>
 #include "lang.hh"
 #include "graph.hh"
+#include "mermaid.hh"
+#include "graphviz.hh"
 
 namespace gitmem
 {
@@ -10,15 +12,19 @@ namespace gitmem
         bool enabled = false;
 
         template <typename T>
-        const Verbose& operator<<(const T &msg) const {
-            if (enabled) {
+        const Verbose &operator<<(const T &msg) const
+        {
+            if (enabled)
+            {
                 std::cout << msg;
             }
             return *this;
         }
 
-        const Verbose& operator<<(std::ostream& (*manip)(std::ostream&)) const {
-            if (enabled) {
+        const Verbose &operator<<(std::ostream &(*manip)(std::ostream &)) const
+        {
+            if (enabled)
+            {
                 std::cout << manip;
             }
             return *this;
@@ -33,7 +39,8 @@ namespace gitmem
     using Commit = size_t;
     using CommitHistory = std::vector<Commit>;
 
-    struct Global {
+    struct Global
+    {
         size_t val;
         std::optional<Commit> commit;
         CommitHistory history;
@@ -41,7 +48,8 @@ namespace gitmem
 
     using Globals = std::unordered_map<std::string, Global>;
 
-    enum class TerminationStatus {
+    enum class TerminationStatus
+    {
         completed,
         datarace_exception,
         unlock_exception,
@@ -67,12 +75,14 @@ namespace gitmem
         size_t pc = 0;
         ThreadStatus terminated = std::nullopt;
 
-        bool operator==(const Thread& other) const {
+        bool operator==(const Thread &other) const
+        {
             // Globals have a history that we don't care about, so we only
             // compare values
             if (ctx.globals.size() != other.ctx.globals.size())
                 return false;
-            for (const auto& [var, global] : ctx.globals) {
+            for (const auto &[var, global] : ctx.globals)
+            {
                 if (!other.ctx.globals.contains(var) ||
                     ctx.globals.at(var).val != other.ctx.globals.at(var).val)
                 {
@@ -88,7 +98,8 @@ namespace gitmem
 
     using ThreadID = size_t;
 
-    struct Lock {
+    struct Lock
+    {
         Globals globals;
         std::optional<ThreadID> owner = std::nullopt;
         std::shared_ptr<graph::Node> last;
@@ -98,59 +109,98 @@ namespace gitmem
 
     using Locks = std::unordered_map<std::string, struct Lock>;
 
-    struct GlobalContext {
+    struct GlobalContext
+    {
         Threads threads;
         Locks locks;
         NodeMap<size_t> cache;
+        std::shared_ptr<graph::Node> entry_node;
         std::unordered_map<Commit, std::shared_ptr<graph::Node>> commit_map;
         Commit uuid = 0;
 
-        bool operator==(const GlobalContext& other) const {
+        GlobalContext(const Node &ast)
+        {
+            Node starting_block = ast / File / Block;
+            entry_node = std::make_shared<graph::Start>(0);
+            ThreadContext starting_ctx = {{}, {}, entry_node};
+            auto main_thread = std::make_shared<Thread>(starting_ctx, starting_block);
+
+            this->threads = {main_thread};
+            this->locks = {};
+            this->cache = {};
+        }
+
+        bool operator==(const GlobalContext &other) const
+        {
             if (threads.size() != other.threads.size() || locks.size() != other.locks.size())
                 return false;
 
             // Threads may have been spawned in a different order, so we
             // find the thread with the same block in the other context
-            for (auto& thread : threads) {
+            for (auto &thread : threads)
+            {
                 auto it = std::find_if(other.threads.begin(), other.threads.end(),
-                                       [&thread](auto& t) { return t->block == thread->block; });
+                                       [&thread](auto &t)
+                                       { return t->block == thread->block; });
                 if (it == other.threads.end() || !(*thread == **it))
                     return false;
             }
 
-            for (auto& [name, lock] : locks) {
+            for (auto &[name, lock] : locks)
+            {
                 if (!other.locks.contains(name))
                     return false;
-                auto& other_lock = other.locks.at(name);
+                auto &other_lock = other.locks.at(name);
                 if (lock.owner != other_lock.owner)
                     return false;
             }
             return true;
         }
+
+        void print_execution_graph(const std::filesystem::path &output_path) const
+        {
+            if (output_path.extension() == ".dot")
+            {
+                graph::GraphvizPrinter gv(output_path);
+                gv.visit(entry_node.get());
+            }
+            else if (output_path.extension() == ".mmd")
+            {
+                graph::MermaidPrinter m(output_path);
+                m.visit(entry_node.get());
+            }
+            else
+            {
+                throw std::runtime_error("Unsupported output format: " + output_path.extension().string());
+            }
+        }
     };
 
-    enum class ProgressStatus {
+    enum class ProgressStatus
+    {
         progress,
         no_progress
     };
 
     inline bool operator!(ProgressStatus p) { return p == ProgressStatus::no_progress; }
 
-    inline ProgressStatus operator||(const ProgressStatus& p1, const ProgressStatus& p2)
+    inline ProgressStatus operator||(const ProgressStatus &p1, const ProgressStatus &p2)
     {
         return (p1 == ProgressStatus::progress || p2 == ProgressStatus::progress) ? ProgressStatus::progress : ProgressStatus::no_progress;
     }
 
-    inline void operator|=(ProgressStatus& p1, const ProgressStatus& p2) {  p1 = (p1 || p2); }
+    inline void operator|=(ProgressStatus &p1, const ProgressStatus &p2) { p1 = (p1 || p2); }
 
     // Entry functions
-    int interpret(const Node);
-    int interpret_interactive(const Node);
-    int model_check(const Node);
+    int interpret(const Node, const std::filesystem::path &output_file);
+    int interpret_interactive(const Node, const std::filesystem::path &output_file);
+    int model_check(const Node, const std::filesystem::path &output_file);
 
     // Internal functions
-    int run_threads(GlobalContext&);
+    int run_threads(GlobalContext &);
 
     std::variant<ProgressStatus, TerminationStatus>
-    progress_thread(GlobalContext&, const ThreadID, std::shared_ptr<Thread>);
+    progress_thread(GlobalContext &, const ThreadID, std::shared_ptr<Thread>);
+
+    std::filesystem::path build_output_path(const std::filesystem::path &, const size_t);
 }

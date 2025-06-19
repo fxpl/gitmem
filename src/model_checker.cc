@@ -33,6 +33,10 @@ namespace gitmem
         }
     };
 
+    /**
+     * Print the traces of the program, one trace per line. Each trace is a
+     * sequence of thread IDs that were scheduled in that order.
+     */
     template <typename S>
     void print_traces(S &stream, const std::vector<std::vector<ThreadID>> &traces)
     {
@@ -50,17 +54,16 @@ namespace gitmem
      * Explore all possible execution paths of the program, printing one trace
      * for each distinct final state that led to an error.
      */
-    int model_check(const Node ast)
+    int model_check(const Node ast, const std::filesystem::path &output_path)
     {
-        Node starting_block = ast / File / Block;
-        auto entry_node = std::make_shared<graph::Start>(0);
-        ThreadContext starting_ctx = {{}, {}, entry_node};
-        auto main_thread = std::make_shared<Thread>(starting_ctx, starting_block);
-        GlobalContext gctx{{main_thread}, {}, {}};
+        GlobalContext gctx(ast);
 
-        auto final_states = std::vector<GlobalContext>{};
-        auto traces = std::vector<std::vector<size_t>>{};
-        auto bad_traces = std::vector<std::vector<size_t>>{};
+        auto final_contexts = std::vector<GlobalContext>{};
+        auto failing_contexts = std::vector<GlobalContext>{};
+        auto deadlocked_contexts = std::vector<GlobalContext>{};
+
+        auto final_traces = std::vector<std::vector<size_t>>{};
+        auto failing_traces = std::vector<std::vector<size_t>>{};
         auto deadlocked_traces = std::vector<std::vector<size_t>>{};
 
         const auto root = std::make_shared<TraceNode>(0);
@@ -134,16 +137,22 @@ namespace gitmem
             if (all_completed || any_crashed || is_deadlock)
             {
                 // Remember final state if it is new
-                if (!std::any_of(final_states.begin(), final_states.end(),
+                if (!std::any_of(final_contexts.begin(), final_contexts.end(),
                                  [&gctx](const GlobalContext &state)
                                  { return state == gctx; }))
                 {
-                    final_states.push_back(gctx);
-                    traces.push_back(current_trace);
+                    final_contexts.push_back(gctx);
+                    final_traces.push_back(current_trace);
                     if (any_crashed)
-                        bad_traces.push_back(current_trace);
+                    {
+                        failing_traces.push_back(current_trace);
+                        failing_contexts.push_back(gctx);
+                    }
                     else if (is_deadlock)
+                    {
                         deadlocked_traces.push_back(current_trace);
+                        deadlocked_contexts.push_back(gctx);
+                    }
                 }
 
                 cursor->complete = true;
@@ -152,11 +161,9 @@ namespace gitmem
             if (cursor->complete && !root->complete)
             {
                 // Reset the cursor to the root and start a new trace
-                verbose << std::endl << "Restarting trace..." << std::endl;
-                auto new_node = std::make_shared<graph::Start>(0);
-                ThreadContext new_starting_ctx = {{}, {}, new_node};
-                auto new_main_thread = std::make_shared<Thread>(new_starting_ctx, starting_block);
-                gctx = {{new_main_thread}, {}, {}};
+                verbose << std::endl
+                        << "Restarting trace..." << std::endl;
+                gctx = GlobalContext(ast);
 
                 cursor = root;
                 current_trace.clear();
@@ -166,23 +173,34 @@ namespace gitmem
             }
         }
 
-        verbose << "Found a total of " << traces.size() << " trace(s) with distinct final states:" << std::endl;
-        print_traces(verbose, traces);
+        verbose << "Found a total of " << final_traces.size() << " trace(s) with distinct final states:" << std::endl;
+        print_traces(verbose, final_traces);
 
-        if (!bad_traces.empty())
+        size_t idx = 0;
+        if (!failing_traces.empty())
         {
-            std::cout << "Found " << bad_traces.size() << " trace(s) with errors:" << std::endl;
-            print_traces(std::cout, bad_traces);
-            return 1;
+            std::cout << "Found " << failing_traces.size() << " trace(s) with errors:" << std::endl;
+            print_traces(std::cout, failing_traces);
+
+            for (const auto &ctx : failing_contexts)
+            {
+                auto path = build_output_path(output_path, idx++);
+                ctx.print_execution_graph(path);
+            }
         }
 
         if (!deadlocked_traces.empty())
         {
             std::cout << "Found " << deadlocked_traces.size() << " trace(s) leading to deadlock:" << std::endl;
             print_traces(std::cout, deadlocked_traces);
-            return 1;
+
+            for (const auto &ctx : deadlocked_contexts)
+            {
+                auto path = build_output_path(output_path, idx++);
+                ctx.print_execution_graph(path);
+            }
         }
 
-        return 0;
+        return deadlocked_traces.empty() && failing_traces.empty() ? 0 : 1;
     }
 }

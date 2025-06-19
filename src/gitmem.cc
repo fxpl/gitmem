@@ -9,7 +9,21 @@ int main(int argc, char **argv)
     CLI::App app;
 
     std::filesystem::path input_path;
-    app.add_option("input", input_path, "Path to the input file ")->required();
+    app.add_option("input", input_path, "Path to the input file ")->required()->check(CLI::ExistingFile);
+
+    std::filesystem::path output_path = "";
+    app.add_option(
+        "-o,--output",
+        output_path,
+        "Path to the output file."
+    )->check([](const std::string &s) {
+        if (s.empty()) return std::string{};
+        auto path = std::filesystem::path(s);
+        if (path.extension() != ".dot" && path.extension() != ".mmd") {
+            return std::string("Output file must have extenision .dot or .mmd");
+        }
+        return std::string{};
+    });
 
     bool verbose = false;
     app.add_flag(
@@ -42,11 +56,15 @@ int main(int argc, char **argv)
 
     try
     {
+        gitmem::verbose.enabled = verbose;
+
+        gitmem::verbose << "Reading file " << input_path << std::endl;
         if (!std::filesystem::exists(input_path))
         {
             std::cerr << "Input file does not exist: " << input_path << std::endl;
             return 1;
         }
+
         auto reader = gitmem::reader().file(input_path);
         auto result = reader.read();
 
@@ -58,23 +76,28 @@ int main(int argc, char **argv)
             return 1;
         }
 
-        gitmem::verbose.enabled = verbose;
+        if (output_path.empty())
+            output_path = input_path.filename().replace_extension(".dot");
+
+        gitmem::verbose << "Output will be written to " << output_path << std::endl;
 
         int exit_status;
         wf::push_back(gitmem::wf);
         if (model_check)
         {
-            exit_status = gitmem::model_check(result.ast);
+            exit_status = gitmem::model_check(result.ast, output_path);
         }
         else if (interactive)
         {
-            exit_status = gitmem::interpret_interactive(result.ast);
+            exit_status = gitmem::interpret_interactive(result.ast, output_path);
         }
         else
         {
-            exit_status = gitmem::interpret(result.ast);
+            exit_status = gitmem::interpret(result.ast, output_path);
         }
         wf::pop_front();
+
+        gitmem::verbose << "Execution finished with exit status " << exit_status << std::endl;
         return exit_status;
     }
     catch (const std::exception &e)

@@ -14,6 +14,7 @@ namespace gitmem
             Finish,  // Finish the rest of the program
             Restart, // Start the program from the beginning
             List,    // List all threads
+            Graph,   // Print the execution graph
             Quit,    // Quit the interpreter
             Info,    // Show commands
             Skip,    // Do nothing, used for invalid commands
@@ -176,6 +177,10 @@ namespace gitmem
         {
             return {Command::List};
         }
+        else if (command == "g")
+        {
+            return {Command::Graph};
+        }
         else if (command == "?")
         {
             return {Command::Info};
@@ -187,20 +192,92 @@ namespace gitmem
         }
     }
 
+    /** Build an output path for the execution graph, appending an index to the
+     * filename to avoid overwriting previous graphs. */
+    std::filesystem::path build_output_path(const std::filesystem::path &output_path, const size_t idx)
+    {
+        auto parent = output_path.parent_path();
+        auto name = output_path.stem().string();
+        auto ext = output_path.extension().string();
+        return parent / (name + "_" + std::to_string(idx) + ext);
+    }
+
+    /** Perform the Step command on a given thread. Error messages are assigned
+     * to `msg`. The return value signals whether threads should be printed
+     * after stepping or not.  */
+    bool step_thread(ThreadID tid, GlobalContext &gctx, std::string &msg)
+    {
+        if (tid >= gctx.threads.size())
+        {
+            msg = "Invalid thread id: " + std::to_string(tid);
+            return false;
+        }
+
+        auto thread = gctx.threads[tid];
+        if (auto term = thread->terminated)
+        {
+            if (*term == TerminationStatus::completed)
+            {
+                msg = "Thread " + std::to_string(tid) + " has terminated normally";
+            }
+            else
+            {
+                msg = "Thread " + std::to_string(tid) + " has terminated with an error";
+            }
+            return false;
+        }
+
+        auto prog_or_term = progress_thread(gctx, tid, thread);
+        if (ProgressStatus *prog = std::get_if<ProgressStatus>(&prog_or_term))
+        {
+            if (!*prog)
+            {
+                auto stmt = thread->block->at(thread->pc);
+                msg = "Thread " + std::to_string(tid) + " is blocking on '" + std::string(stmt->location().view()) + "'";
+                return false;
+            }
+        }
+        else if (TerminationStatus *term = std::get_if<TerminationStatus>(&prog_or_term))
+        {
+            switch (*term)
+            {
+            case TerminationStatus::completed:
+                msg = "Thread " + std::to_string(tid) + " terminated normally";
+                return true;
+            case TerminationStatus::datarace_exception:
+                // TODO: Say on which variable the datarace occurred. To
+                // do this, have pull return an optional variable that
+                // is in a race and have the data race exception
+                // remember that variable.
+                msg = "Thread " + std::to_string(tid) + " encountered a data race and was terminated";
+                return false;
+            case TerminationStatus::assertion_failure_exception:
+            {
+                auto expr = thread->block->at(thread->pc) / Stmt / Expr;
+                msg = "Thread " + std::to_string(tid) + " failed assertion '" + std::string(expr->location().view()) + "' and was terminated";
+                return false;
+            }
+            case TerminationStatus::unassigned_variable_read_exception:
+                throw std::runtime_error("Thread " + std::to_string(tid) + " read an uninitialised variable");
+            case TerminationStatus::unlock_exception:
+                throw std::runtime_error("Thread " + std::to_string(tid) + " unlocked an unlocked lock");
+            default:
+                throw std::runtime_error("Thread " + std::to_string(tid) + " has an unhandled termination state");
+            }
+        }
+        return true;
+    }
+
     /** Interpret the AST in an interactive way, letting the user choose which
      * thread to schedule next. */
-    int interpret_interactive(const Node ast)
+    int interpret_interactive(const Node ast, const std::filesystem::path &output_file)
     {
-        Node starting_block = ast / File / Block;
-        auto entry_node = std::make_shared<graph::Start>(0);
-        ThreadContext starting_ctx = {{}, {}, entry_node};
-        auto main_thread = std::make_shared<Thread>(starting_ctx, starting_block);
+        GlobalContext gctx(ast);
 
-        GlobalContext gctx{{main_thread}, {}, {}};
-
-        size_t prev_no_threads = 0;
+        size_t prev_no_threads = 1;
         Command command = {Command::List};
         std::string msg = "";
+        size_t output_idx = 0;
         while (command.cmd != Command::Quit)
         {
             if (command.cmd != Command::Skip || prev_no_threads != gctx.threads.size())
@@ -227,68 +304,7 @@ namespace gitmem
             if (command.cmd == Command::Step)
             {
                 auto tid = command.argument;
-                if (tid >= gctx.threads.size())
-                {
-                    msg = "Invalid thread id: " + std::to_string(tid);
-                    command = {Command::Skip};
-                    continue;
-                }
-
-                auto thread = gctx.threads[tid];
-                if (auto term = thread->terminated)
-                {
-                    if (*term == TerminationStatus::completed)
-                    {
-                        msg = "Thread " + std::to_string(tid) + " has terminated normally";
-                    }
-                    else
-                    {
-                        msg = "Thread " + std::to_string(tid) + " has terminated with an error";
-                    }
-                    command = {Command::Skip};
-                    continue;
-                }
-
-                auto prog_or_term = progress_thread(gctx, tid, thread);
-                if (ProgressStatus *prog = std::get_if<ProgressStatus>(&prog_or_term))
-                {
-                    if (!*prog)
-                    {
-                        auto stmt = thread->block->at(thread->pc);
-                        msg = "Thread " + std::to_string(tid) + " is blocking on '" + std::string(stmt->location().view()) + "'";
-                        command = {Command::Skip};
-                    }
-                }
-                else if (TerminationStatus *term = std::get_if<TerminationStatus>(&prog_or_term))
-                {
-                    switch (*term)
-                    {
-                    case TerminationStatus::completed:
-                        msg = "Thread " + std::to_string(tid) + " terminated normally";
-                        break;
-                    case TerminationStatus::datarace_exception:
-                        // TODO: Say on which variable the datarace occurred. To
-                        // do this, have pull return an optional variable that
-                        // is in a race and have the data race exception
-                        // remember that variable.
-                        msg = "Thread " + std::to_string(tid) + " encountered a data race and was terminated";
-                        command = {Command::Skip};
-                        break;
-                    case TerminationStatus::assertion_failure_exception:
-                    {
-                        auto expr = thread->block->at(thread->pc) / Stmt / Expr;
-                        msg = "Thread " + std::to_string(tid) + " failed assertion '" + std::string(expr->location().view()) + "' and was terminated";
-                        command = {Command::Skip};
-                        break;
-                    }
-                    case TerminationStatus::unassigned_variable_read_exception:
-                        throw std::runtime_error("Thread " + std::to_string(tid) + " read an uninitialised variable");
-                    case TerminationStatus::unlock_exception:
-                        throw std::runtime_error("Thread " + std::to_string(tid) + " unlocked an unlocked lock");
-                    default:
-                        throw std::runtime_error("Thread " + std::to_string(tid) + " has an unhandled termination state");
-                    }
-                }
+                if (!step_thread(tid, gctx, msg)) command = {Command::Skip};
             }
             else if (command.cmd == Command::Finish)
             {
@@ -301,16 +317,24 @@ namespace gitmem
             else if (command.cmd == Command::Restart)
             {
                 // Start the program from the beginning
-                auto new_entry_node = std::make_shared<graph::Start>(0);
-                ThreadContext new_starting_ctx = {{}, {}, new_entry_node};
-                auto new_main_thread = std::make_shared<Thread>(new_starting_ctx, starting_block);
-                gctx = {{new_main_thread}, {}, {}};
-
+                gctx = GlobalContext(ast);
                 command = {Command::List};
             }
             else if (command.cmd == Command::List)
             {
                 // Listing is a no-op
+            }
+            else if (command.cmd == Command::Graph)
+            {
+                // Print the execution graph
+                auto path = build_output_path(output_file, output_idx++);
+                gctx.print_execution_graph(path);
+                verbose << "Execution graph written to " << path << std::endl;
+                command = {Command::Skip};
+            }
+            else if (command.cmd == Command::Skip)
+            {
+                // Skip is a no-op
             }
             else if (command.cmd == Command::Info)
             {
@@ -320,7 +344,9 @@ namespace gitmem
                 std::cout << "f - Finish the program" << std::endl;
                 std::cout << "r - Restart the program" << std::endl;
                 std::cout << "l - List all threads" << std::endl;
+                std::cout << "g - Print the current execution graph" << std::endl;
                 std::cout << "q - Quit the interpreter" << std::endl;
+                std::cout << "? - Display this help message" << std::endl;
                 command = {Command::Skip};
             }
             else if (command.cmd == Command::Quit)
@@ -328,6 +354,7 @@ namespace gitmem
                 // Quit is a no-op
             }
         }
+
         return 0;
     }
 }
