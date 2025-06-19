@@ -38,7 +38,7 @@ namespace graph {
   }
 
   void GraphvizPrinter::emitSyncEdge(const Node* from, const Node* to) {
-    emitEdge(from, to, "sync", "style=dashed, constraint=false");
+    emitEdge(from, to, "sync", "style=bold, constraint=false");
   }
 
   void GraphvizPrinter::emitConflict(const Node* n, const Conflict& conflict) {
