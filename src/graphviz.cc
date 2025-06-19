@@ -92,11 +92,10 @@ namespace graph {
 
   void GraphvizPrinter::visitRead(const Read* n) {
     emitNode(n, "R" + n->var + " = " + to_string(n->value));
+    emitProgramOrderEdge(n, n->next.get());
+    visitProgramOrder(n->next.get());
+
     assert(n->sauce);
-    if (n->next) {
-      emitProgramOrderEdge(n, n->next.get());
-      visitProgramOrder(n->next.get());
-    }
     emitReadFromEdge(n, n->sauce.get());
   }
 

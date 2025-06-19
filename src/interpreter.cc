@@ -31,7 +31,7 @@ namespace gitmem
 
     bool is_syncing(Thread &thread)
     {
-        return is_syncing(thread.block->at(thread.pc));
+        return !thread.terminated && is_syncing(thread.block->at(thread.pc));
     }
 
     /* At a commit point, walk through all the versioned variables and see if
@@ -393,6 +393,7 @@ namespace gitmem
             if (std::holds_alternative<TerminationStatus>(prog_or_term))
             {
                 thread->terminated = std::get<TerminationStatus>(prog_or_term);
+                thread_append_node<graph::End>(ctx);
                 return prog_or_term;
             }
 
@@ -404,6 +405,7 @@ namespace gitmem
         }
 
         thread->terminated = TerminationStatus::completed;
+        thread_append_node<graph::End>(ctx);
         return TerminationStatus::completed;
     }
 
@@ -459,7 +461,6 @@ namespace gitmem
                     // We could return termination status of any error here and stop
                     // at the first error
                     thread->terminated = std::get<TerminationStatus>(prog_or_term);
-                    thread_append_node<graph::End>(thread->ctx);
                     any_progress |= ProgressStatus::progress;
                 }
 
@@ -546,20 +547,11 @@ namespace gitmem
         return exception_detected ? 1 : 0;
     }
 
-    int interpret(const Node ast)
+    int interpret(const Node ast, const std::filesystem::path &output_path)
     {
-        Node starting_block = ast / File / Block;
-        auto entry_node = std::make_shared<graph::Start>(0);
-        ThreadContext starting_ctx = {{}, {}, entry_node};
-        auto main_thread = std::make_shared<Thread>(starting_ctx, starting_block);
-        GlobalContext gctx {{main_thread}, {}, {}};
-
+        GlobalContext gctx(ast);
         auto result = run_threads(gctx);
-
-        graph::GraphvizPrinter gv("graph.dot");
-        graph::MermaidPrinter m("graph.mdd");
-        m.visit(entry_node.get());
-        gv.visit(entry_node.get());
+        gctx.print_execution_graph(output_path);
 
         return result;
     }

@@ -17,7 +17,7 @@ namespace graph {
   }
 
   void MermaidPrinter::emitEdge(const Node* from, const Node* to, const std::string& style) {
-    if(!from || !to) return;
+    if (!from || !to) return;
     file << "\t" << (size_t)from;
     if (!style.empty()) file << " -." << style << ".-> ";
     else file << " --> ";
@@ -70,11 +70,10 @@ namespace graph {
 
   void MermaidPrinter::visitRead(const Read* n) {
     emitNode(n, "read " + n->var + " = " + to_string(n->value) + " : #" + std::to_string(n->id));
+    emitEdge(n, n->next.get());
+    visitProgramOrder(n->next.get());
+
     assert(n->sauce);
-    if (n->next) {
-      emitEdge(n, n->next.get());
-      visitProgramOrder(n->next.get());
-    }
     emitEdge(n, n->sauce.get(), "rf");
   }
 
