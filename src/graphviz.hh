@@ -12,6 +12,7 @@ namespace gitmem {
       void visitJoin(const Join*) override;
       void visitLock(const Lock*) override;
       void visitUnlock(const Unlock*) override;
+      void visitPending(const Pending*) override;
       void visit(const Node* n) override;
 
       GraphvizPrinter(std::string filename) noexcept;

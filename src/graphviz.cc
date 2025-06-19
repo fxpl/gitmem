@@ -131,5 +131,11 @@ namespace graph {
     visitProgramOrder(n->next.get());
   }
 
+  void GraphvizPrinter::visitPending(const Pending* n) {
+    assert(!n->next);
+    emitNode(n, "" + n->statement + "", "style=dashed");
+    file << "}" << std::endl;
+  }
+
 } // namespace graph
 } // namespace gitmem
