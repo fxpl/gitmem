@@ -14,7 +14,8 @@ namespace gitmem
             Finish,  // Finish the rest of the program
             Restart, // Start the program from the beginning
             List,    // List all threads
-            Graph,   // Print the execution graph
+            Print,   // Print the execution graph
+            Graph,   // Toggle automatically printing the execution graph
             Quit,    // Quit the interpreter
             Info,    // Show commands
             Skip,    // Do nothing, used for invalid commands
@@ -181,6 +182,10 @@ namespace gitmem
         {
             return {Command::Graph};
         }
+        else if (command == "p")
+        {
+            return {Command::Print};
+        }
         else if (command == "?")
         {
             return {Command::Info};
@@ -190,16 +195,6 @@ namespace gitmem
             std::cout << "Unknown command: " << input << std::endl;
             return {Command::Skip};
         }
-    }
-
-    /** Build an output path for the execution graph, appending an index to the
-     * filename to avoid overwriting previous graphs. */
-    std::filesystem::path build_output_path(const std::filesystem::path &output_path, const size_t idx)
-    {
-        auto parent = output_path.parent_path();
-        auto name = output_path.stem().string();
-        auto ext = output_path.extension().string();
-        return parent / (name + "_" + std::to_string(idx) + ext);
     }
 
     /** Perform the Step command on a given thread. Error messages are assigned
@@ -277,7 +272,7 @@ namespace gitmem
         size_t prev_no_threads = 1;
         Command command = {Command::List};
         std::string msg = "";
-        size_t output_idx = 0;
+        bool print_graphs = true;
         while (command.cmd != Command::Quit)
         {
             if (command.cmd != Command::Skip || prev_no_threads != gctx.threads.size())
@@ -305,6 +300,12 @@ namespace gitmem
             {
                 auto tid = command.argument;
                 if (!step_thread(tid, gctx, msg)) command = {Command::Skip};
+
+                if (print_graphs)
+                {
+                    gctx.print_execution_graph(output_file);
+                    verbose << "Execution graph written to " << output_file << std::endl;
+                }
             }
             else if (command.cmd == Command::Finish)
             {
@@ -313,6 +314,12 @@ namespace gitmem
                     msg = "Program finished successfully";
                 else
                     msg = "Program terminated with an error";
+
+                if (print_graphs)
+                {
+                    gctx.print_execution_graph(output_file);
+                    verbose << "Execution graph written to " << output_file << std::endl;
+                }
             }
             else if (command.cmd == Command::Restart)
             {
@@ -326,10 +333,16 @@ namespace gitmem
             }
             else if (command.cmd == Command::Graph)
             {
+                // Toggle printing execution graph automatically
+                print_graphs = !print_graphs;
+                std::cout << "graphs " << (print_graphs ? "will" : "won't") << " print automatically" << std::endl;
+                command = {Command::Skip};
+            }
+            else if (command.cmd == Command::Print)
+            {
                 // Print the execution graph
-                auto path = build_output_path(output_file, output_idx++);
-                gctx.print_execution_graph(path);
-                verbose << "Execution graph written to " << path << std::endl;
+                gctx.print_execution_graph(output_file);
+                verbose << "Execution graph written to " << output_file << std::endl;
                 command = {Command::Skip};
             }
             else if (command.cmd == Command::Skip)
@@ -344,7 +357,8 @@ namespace gitmem
                 std::cout << "f - Finish the program" << std::endl;
                 std::cout << "r - Restart the program" << std::endl;
                 std::cout << "l - List all threads" << std::endl;
-                std::cout << "g - Print the current execution graph" << std::endl;
+                std::cout << "g - Toggle printing the execution graph at sync points" << std::endl;
+                std::cout << "p - Printing the execution graph at current sync point" << std::endl;
                 std::cout << "q - Quit the interpreter" << std::endl;
                 std::cout << "? - Display this help message" << std::endl;
                 command = {Command::Skip};

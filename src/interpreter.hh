@@ -201,6 +201,4 @@ namespace gitmem
 
     std::variant<ProgressStatus, TerminationStatus>
     progress_thread(GlobalContext &, const ThreadID, std::shared_ptr<Thread>);
-
-    std::filesystem::path build_output_path(const std::filesystem::path &, const size_t);
 }

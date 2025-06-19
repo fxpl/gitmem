@@ -109,5 +109,10 @@ namespace graph {
     visitProgramOrder(n->next.get());
   }
 
+  void MermaidPrinter::visitPending(const Pending* n) {
+    assert(!n->next);
+    assert(false);
+  }
+
 } // namespace graph
 } // namespace gitmem

@@ -1,5 +1,6 @@
 #include <trieste/trieste.h>
 #include <variant>
+#include <regex>
 
 #include "interpreter.hh"
 #include "mermaid.hh"
@@ -113,6 +114,17 @@ namespace gitmem
         auto node = std::make_shared<T>(std::forward<Args>(args)...);
         ctx.tail->next = node;
         ctx.tail = node;
+        return node;
+    }
+
+    template<>
+    std::shared_ptr<graph::Pending> thread_append_node<graph::Pending>(ThreadContext& ctx, std::string&& stmt)
+    {
+        // pending nodes don't update the tail position as we will destroy them
+        // once we execute the node
+        auto s = std::regex_replace(stmt, std::regex("\n"), "\\l   ");
+        auto node = make_shared<graph::Pending>(std::move(s));
+        ctx.tail->next = node;
         return node;
     }
 
@@ -387,7 +399,10 @@ namespace gitmem
             Node stmt = block->at(pc);
 
             if (!first_statement && is_syncing(stmt))
+            {
+                thread_append_node<graph::Pending>(ctx, std::string(stmt->location().view()));
                 return ProgressStatus::progress;
+            }
 
             auto prog_or_term = run_statement(stmt, gctx, ctx, tid);
             if (std::holds_alternative<TerminationStatus>(prog_or_term))
@@ -398,7 +413,10 @@ namespace gitmem
             }
 
             if(!(std::get<ProgressStatus>(prog_or_term)))
+            {
+                thread_append_node<graph::Pending>(ctx, std::string(stmt->location().view()));
                 return first_statement ? ProgressStatus::no_progress : ProgressStatus::progress;
+            }
 
             pc++;
             first_statement = false;

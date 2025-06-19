@@ -26,6 +26,7 @@ namespace gitmem {
     struct Join;
     struct Lock;
     struct Unlock;
+    struct Pending;
 
     struct Conflict
     {
@@ -43,6 +44,7 @@ namespace gitmem {
       virtual void visitJoin(const Join*) = 0;
       virtual void visitLock(const Lock*) = 0;
       virtual void visitUnlock(const Unlock*) = 0;
+      virtual void visitPending(const Pending*) = 0;
       virtual void visit(const Node* n) { n->accept(this); }
     };
 
@@ -147,6 +149,17 @@ namespace gitmem {
       void accept(Visitor* v) const override
       {
         v->visitUnlock(this);
+      }
+    };
+
+    struct Pending : Node
+    {
+      const std::string statement;
+
+      Pending(const std::string statement): statement(statement) {}
+      void accept(Visitor* v) const override
+      {
+        v->visitPending(this);
       }
     };
   }
