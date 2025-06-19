@@ -50,6 +50,16 @@ namespace gitmem
         }
     }
 
+    /** Build an output path for the execution graph, appending an index to the
+     * filename to avoid overwriting previous graphs. */
+    std::filesystem::path build_output_path(const std::filesystem::path &output_path, const size_t idx)
+    {
+        auto parent = output_path.parent_path();
+        auto name = output_path.stem().string();
+        auto ext = output_path.extension().string();
+        return parent / (name + "_" + std::to_string(idx) + ext);
+    }
+
     /**
      * Explore all possible execution paths of the program, printing one trace
      * for each distinct final state that led to an error.
