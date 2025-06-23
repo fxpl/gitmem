@@ -38,7 +38,7 @@ namespace graph {
   }
 
   void GraphvizPrinter::emitSyncEdge(const Node* from, const Node* to) {
-    emitEdge(from, to, "sync", "style=dashed, constraint=false");
+    emitEdge(from, to, "sync", "style=bold, constraint=false");
   }
 
   void GraphvizPrinter::emitConflict(const Node* n, const Conflict& conflict) {
@@ -129,6 +129,12 @@ namespace graph {
     emitNode(n, "unlock " + n->var);
     emitProgramOrderEdge(n, n->next.get());
     visitProgramOrder(n->next.get());
+  }
+
+  void GraphvizPrinter::visitPending(const Pending* n) {
+    assert(!n->next);
+    emitNode(n, "" + n->statement + "", "style=dashed");
+    file << "}" << std::endl;
   }
 
 } // namespace graph

@@ -12,6 +12,7 @@ namespace gitmem {
       void visitJoin(const Join*) override;
       void visitLock(const Lock*) override;
       void visitUnlock(const Unlock*) override;
+      void visitPending(const Pending*) override;
 
       MermaidPrinter(std::string filename) noexcept;
     private:
