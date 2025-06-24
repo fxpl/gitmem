@@ -273,6 +273,7 @@ namespace gitmem
         Command command = {Command::List};
         std::string msg = "";
         bool print_graphs = true;
+        gctx.print_execution_graph(output_file);
         while (command.cmd != Command::Quit)
         {
             if (command.cmd != Command::Skip || prev_no_threads != gctx.threads.size())
@@ -326,6 +327,11 @@ namespace gitmem
                 // Start the program from the beginning
                 gctx = GlobalContext(ast);
                 command = {Command::List};
+                if (print_graphs)
+                {
+                    gctx.print_execution_graph(output_file);
+                    verbose << "Execution graph written to " << output_file << std::endl;
+                }
             }
             else if (command.cmd == Command::List)
             {
