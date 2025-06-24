@@ -25,7 +25,6 @@ add_executable(gitmem
   src/debugger.cc
   src/model_checker.cc
   src/graphviz.cc
-  src/mermaid.cc
 )
 
 add_executable(gitmem_trieste
