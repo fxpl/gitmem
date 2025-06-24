@@ -1,7 +1,6 @@
 #include <trieste/trieste.h>
 #include "lang.hh"
 #include "graph.hh"
-#include "mermaid.hh"
 #include "graphviz.hh"
 
 namespace gitmem
@@ -159,20 +158,8 @@ namespace gitmem
 
         void print_execution_graph(const std::filesystem::path &output_path) const
         {
-            if (output_path.extension() == ".dot")
-            {
-                graph::GraphvizPrinter gv(output_path);
-                gv.visit(entry_node.get());
-            }
-            else if (output_path.extension() == ".mmd")
-            {
-                graph::MermaidPrinter m(output_path);
-                m.visit(entry_node.get());
-            }
-            else
-            {
-                throw std::runtime_error("Unsupported output format: " + output_path.extension().string());
-            }
+            graph::GraphvizPrinter gv(output_path);
+            gv.visit(entry_node.get());
         }
     };
 
