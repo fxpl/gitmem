@@ -6,7 +6,7 @@ namespace gitmem
 
     PassDef statements()
     {
-        auto RVal = T(Expr) << (T(Reg, Var, Const, Spawn));
+        auto RVal = T(Expr) << (T(Reg, Var, Add, Const, Spawn));
         return {
             "statements",
             statements_wf,
@@ -57,7 +57,7 @@ namespace gitmem
                                                << _(Expr));
                     },
 
-                --In(Stmt) * T(Assert) << (T(Paren) << ((T(Expr)[Expr] << T(Eq)) * End)) >>
+                --In(Stmt) * T(Assert) << ((T(Expr)[Expr] << T(Eq, Neq)) * End) >>
                     [](Match &_) -> Node
                     {
                         return Stmt << (Assert << _(Expr));
@@ -70,12 +70,12 @@ namespace gitmem
                     },
 
                 // Error rules
-                T(Group) << End >>
-                    [](Match &_) -> Node
-                    {
-                        return Error << (ErrorAst << _(Group))
-                                     << (ErrorMsg ^ "Expected statement");
-                    },
+                // --In(Assert, Spawn, Join, Assign) * T(Group)[Group] << End >>
+                //     [](Match &_) -> Node
+                //     {
+                //         return Error << (ErrorAst << _(Group))
+                //                      << (ErrorMsg ^ "Expected statement");
+                //     },
 
                 In(Group) * T(Stmt) * Any[Expr] >>
                     [](Match &_) -> Node
@@ -123,7 +123,7 @@ namespace gitmem
                     [](Match &_) -> Node
                     {
                         return Error << (ErrorAst << _(Expr))
-                                     << (ErrorMsg ^ "Bad thread identifier");
+                                     << (ErrorMsg ^ "Invalid thread identifier");
                     },
 
                 --In(Stmt) * T(Lock, Unlock) << End >>
@@ -137,7 +137,7 @@ namespace gitmem
                     [](Match &_) -> Node
                     {
                         return Error << (ErrorAst << _(Expr))
-                                     << (ErrorMsg ^ "Bad lock identifier");
+                                     << (ErrorMsg ^ "Invalid lock identifier");
                     },
 
                 --In(Stmt) * T(Assign) << (Any * End) >>
@@ -161,18 +161,18 @@ namespace gitmem
                                      << (ErrorMsg ^ "Invalid left-hand side to assignment");
                     },
 
-                --In(Stmt) * T(Assert)[Assert] << End >>
+                --In(Stmt) * T(Assert)[Assert] << (T(Group) << End) >>
                     [](Match &_) -> Node
                     {
                         return Error << (ErrorAst << _(Assert))
-                                     << (ErrorMsg ^ "Expected assertion");
+                                     << (ErrorMsg ^ "Expected condition");
                     },
 
-                --In(Stmt) * T(Assert)[Assert] << (Any * End) >>
+                --In(Stmt) * T(Assert) << (Any[Expr] * End) >>
                     [](Match &_) -> Node
                     {
-                        return Error << (ErrorAst << _(Assert))
-                                     << (ErrorMsg ^ "Bad assertion");
+                        return Error << (ErrorAst << _(Expr))
+                                     << (ErrorMsg ^ "Invalid assertion");
                     },
 
                 In(File, Brace) * T(Stmt)[Stmt] >>

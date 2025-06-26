@@ -14,8 +14,12 @@ namespace gitmem
   // Constants
   inline const auto Const = TokenDef("const", flag::print);
 
+  // Arithmetic
+  inline const auto Add = TokenDef("+");
+
   // Comparison
   inline const auto Eq = TokenDef("==");
+  inline const auto Neq = TokenDef("!=");
 
   // Statements
   inline const auto Semi = TokenDef(";");
@@ -47,9 +51,11 @@ namespace gitmem
     (Top <<= File)
   | (File <<= Block)
   | (Block <<= Stmt++[1])
-  | (Expr <<= (Reg | Var | Const | Spawn | Eq))
+  | (Expr <<= (Reg | Var | Const | Spawn | Eq | Neq | Add))
   | (Spawn <<= Block)
   | (Eq <<= (Lhs >>= Expr) * (Rhs >>= Expr))
+  | (Neq <<= (Lhs >>= Expr) * (Rhs >>= Expr))
+  | (Add <<= Expr++[2])
   | (Stmt <<= (Nop | Assign | Join | Lock | Unlock | Assert))
   | (Assign <<= ((LVal >>= (Reg | Var)) * Expr))[LVal]
   | (Join <<= Expr)

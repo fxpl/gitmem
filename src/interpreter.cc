@@ -167,6 +167,17 @@ namespace gitmem
         {
             return size_t(std::stoi(std::string(e->location().view())));
         }
+        else if (e == Add)
+        {
+            size_t sum = 0;
+            for (auto &child : *e)
+            {
+                auto result = evaluate_expression(child, gctx, ctx);
+                if (std::holds_alternative<TerminationStatus>(result)) return result;
+                sum += std::get<size_t>(result);
+            }
+            return sum;
+        }
         else if (e == Spawn)
         {
             // Spawning is a sync point, commit local pending commits, and
@@ -182,7 +193,7 @@ namespace gitmem
 
             return tid;
         }
-        else if (e == Eq)
+        else if (e == Eq || e == Neq)
         {
             auto lhs = e / Lhs;
             auto rhs = e / Rhs;
@@ -193,7 +204,8 @@ namespace gitmem
             auto rhsEval = evaluate_expression(rhs, gctx, ctx);
             if (std::holds_alternative<TerminationStatus>(rhsEval)) return rhsEval;
 
-            return ((std::get<size_t>(lhsEval)) == (std::get<size_t>(rhsEval)));
+            return e == Eq? (std::get<size_t>(lhsEval)) == (std::get<size_t>(rhsEval))
+                          : (std::get<size_t>(lhsEval)) != (std::get<size_t>(rhsEval));
         }
         else
         {

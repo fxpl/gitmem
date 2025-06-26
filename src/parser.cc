@@ -9,36 +9,16 @@ namespace gitmem
   Parse parser()
   {
     Parse p(depth::file, parser_wf);
-/*
     auto infix = [](Make& m, Token t) {
       // This precedence table maps infix operators to the operators that have
       // *higher* precedence, and which should therefore be terminated when that
       // operator is encountered. Note that operators with the same precedence
       // terminate each other. (for reasons, it has to be defined inside the lambda)
-      // TODO: Should be able to have prefix operators as well (e.g. Not)
-      // TODO: Can this be computed from something more declarative?
-      // {
-      //  {Dot},
-      //  {Mul, Div},
-      //  {Add, Sub},
-      //  {Colon},
-      //  {LT, Equals},
-      //  {And},
-      //  {Or},
-      //  {Assign},
-      // }
       const auto precedence_table = std::map<Token, std::initializer_list<Token>> {
-        {Dot,    {}},
-        {Mul,    {Dot, Div}},
-        {Div,    {Dot, Mul}},
-        {Add,    {Dot, Sub, Mul, Div}},
-        {Sub,    {Dot, Add, Mul, Div}},
-        {Colon,  {Dot, Add, Sub, Mul, Div}},
-        {LT,     {Dot, Add, Sub, Mul, Div, Colon, Equals}},
-        {Equals, {Dot, Add, Sub, Mul, Div, Colon, LT}},
-        {And,    {Dot, Add, Sub, Mul, Div, Colon, LT, Equals}},
-        {Or,     {Dot, Add, Sub, Mul, Div, Colon, LT, Equals, And}},
-        {Assign, {Dot, Add, Sub, Mul, Colon, LT, Equals, Or, And}},
+        {Add,    {}},
+        {Eq,     {Add}},
+        {Neq,    {Add}},
+        {Assign, {Add, Eq, Neq}},
       };
 
       auto skip = precedence_table.at(t);
@@ -47,6 +27,7 @@ namespace gitmem
       m.push(Group);
     };
 
+/*
     auto pair_with = [pop_until](Make &m, Token preceding, Token following) {
       pop_until(m, preceding, {Paren, Brace, File});
       m.term();
@@ -83,12 +64,16 @@ namespace gitmem
         // Constant
         "[[:digit:]]+" >> [](auto& m) { m.add(Const); },
 
+        // Addition
+        R"(\+)" >> [infix](auto& m) { infix(m, Add); },
+
         // Comparison
-        "==" >> [](auto& m) { m.seq(Eq); },
+        "==" >> [infix](auto& m) { infix(m, Eq); },
+        "!=" >> [infix](auto& m) { infix(m, Neq); },
 
         // Statements
-        ";" >> [](auto& m) { m.seq(Semi, {Assign, Spawn, Join, Lock, Unlock, Assert, Eq, Group}); },
-        "=" >> [](auto& m) { m.seq(Assign); },
+        ";" >> [](auto& m) { m.seq(Semi, {Assign, Spawn, Join, Lock, Unlock, Assert, Eq, Neq, Add, Group}); },
+        "=" >> [infix](auto& m) { infix(m, Assign); },
         "spawn" >> [](auto& m) { m.push(Spawn); },
         "join" >> [](auto& m) { m.push(Join); },
         "lock" >> [](auto& m) { m.push(Lock); },

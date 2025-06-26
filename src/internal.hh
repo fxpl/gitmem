@@ -14,15 +14,17 @@ namespace gitmem
      Reg | Var | Const | Nop | Brace | Paren |
      Spawn | Join | Lock | Unlock | Assert;
 
-  inline const auto parse_op = Group | Assign | Eq | Semi;
+  inline const auto parse_op = Group | Assign | Eq | Neq | Add | Semi;
 
   // clang-format off
 	inline const wf::Wellformed parser_wf =
 		(Top <<= File)
 		| (File	<<= ~parse_op)
     | (Semi <<= (parse_op - Semi)++[1])
-    | (Assign <<= (parse_op - Assign)++[1])
-    | (Eq <<= parse_op++[1])
+    | (Assign <<= (parse_op - Assign)++[2])
+    | (Eq <<= parse_op++[2])
+    | (Neq <<= parse_op++[2])
+    | (Add <<= parse_op++[2])
     | (Spawn <<= ~parse_op)
     | (Join <<= ~parse_op)
     | (Lock <<= ~parse_op)
@@ -39,13 +41,15 @@ namespace gitmem
   inline const wf::Wellformed expressions_wf =
     parser_wf
     | (File <<= ~expressions_op)
-    | (Expr <<= (Reg | Var | Const | Spawn | Eq))
+    | (Expr <<= (Reg | Var | Const | Spawn | Eq | Neq | Add))
     | (Brace <<= ~expressions_op)
     | (Paren <<= ~expressions_op)
     | (Semi <<= (expressions_op - Semi)++[1])
     | (Assign <<= (expressions_op - Assign)++[1])
     | (Spawn <<= Brace)
     | (Eq <<= (Lhs >>= Expr) * (Rhs >>= Expr))
+    | (Neq <<= (Lhs >>= Expr) * (Rhs >>= Expr))
+    | (Add <<= Expr++[2])
     | (Join <<= ~expressions_op)
     | (Lock <<= ~expressions_op)
     | (Unlock <<= ~expressions_op)
