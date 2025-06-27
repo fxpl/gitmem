@@ -1,3 +1,5 @@
+#pragma once
+
 #include <trieste/trieste.h>
 #include "lang.hh"
 #include "graph.hh"
@@ -108,6 +110,12 @@ namespace gitmem
 
     using Locks = std::unordered_map<std::string, struct Lock>;
 
+    template<typename T, typename...Args>
+    std::shared_ptr<T> thread_append_node(ThreadContext& ctx, Args&&...args);
+
+    template<>
+    std::shared_ptr<graph::Pending> thread_append_node<graph::Pending>(ThreadContext& ctx, std::string&& stmt);
+
     struct GlobalContext
     {
         Threads threads;
@@ -158,6 +166,20 @@ namespace gitmem
 
         void print_execution_graph(const std::filesystem::path &output_path) const
         {
+            // Loop over the threads and add pending nodes to running threads
+            // to indicate a threads next step
+            for (const auto& t: threads)
+            {
+                assert(t->ctx.tail);
+                if (t->terminated || dynamic_pointer_cast<const graph::Pending>(t->ctx.tail->next))
+                    continue;
+
+                Node block = t->block;
+                size_t &pc = t->pc;
+                Node stmt = block->at(pc);
+                thread_append_node<graph::Pending>(t->ctx, std::string(stmt->location().view()));
+            }
+
             graph::GraphvizPrinter gv(output_path);
             gv.visit(entry_node.get());
         }

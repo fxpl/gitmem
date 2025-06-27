@@ -435,7 +435,6 @@ namespace gitmem
 
             if (!first_statement && is_syncing(stmt))
             {
-                thread_append_node<graph::Pending>(ctx, std::string(stmt->location().view()));
                 return ProgressStatus::progress;
             }
 
@@ -451,7 +450,6 @@ namespace gitmem
 
             if(delta == 0)
             {
-                thread_append_node<graph::Pending>(ctx, std::string(stmt->location().view()));
                 return first_statement ? ProgressStatus::no_progress : ProgressStatus::progress;
             }
 

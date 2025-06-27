@@ -118,7 +118,7 @@ namespace graph {
   }
 
   void GraphvizPrinter::visitLock(const Lock* n) {
-    emitNode(n, "lock " + n->var);
+    emitNode(n, "Lock " + n->var);
     emitProgramOrderEdge(n, n->next.get());
     visitProgramOrder(n->next.get());
     if (n->ordered_after) emitSyncEdge(n->ordered_after.get(), n);
@@ -126,7 +126,7 @@ namespace graph {
   }
 
   void GraphvizPrinter::visitUnlock(const Unlock* n) {
-    emitNode(n, "unlock " + n->var);
+    emitNode(n, "Unlock " + n->var);
     emitProgramOrderEdge(n, n->next.get());
     visitProgramOrder(n->next.get());
   }
