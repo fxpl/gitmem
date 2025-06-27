@@ -167,6 +167,17 @@ namespace gitmem
         {
             return size_t(std::stoi(std::string(e->location().view())));
         }
+        else if (e == Add)
+        {
+            size_t sum = 0;
+            for (auto &child : *e)
+            {
+                auto result = evaluate_expression(child, gctx, ctx);
+                if (std::holds_alternative<TerminationStatus>(result)) return result;
+                sum += std::get<size_t>(result);
+            }
+            return sum;
+        }
         else if (e == Spawn)
         {
             // Spawning is a sync point, commit local pending commits, and
@@ -182,7 +193,7 @@ namespace gitmem
 
             return tid;
         }
-        else if (e == Eq)
+        else if (e == Eq || e == Neq)
         {
             auto lhs = e / Lhs;
             auto rhs = e / Rhs;
@@ -193,7 +204,8 @@ namespace gitmem
             auto rhsEval = evaluate_expression(rhs, gctx, ctx);
             if (std::holds_alternative<TerminationStatus>(rhsEval)) return rhsEval;
 
-            return ((std::get<size_t>(lhsEval)) == (std::get<size_t>(rhsEval)));
+            return e == Eq? (std::get<size_t>(lhsEval)) == (std::get<size_t>(rhsEval))
+                          : (std::get<size_t>(lhsEval)) != (std::get<size_t>(rhsEval));
         }
         else
         {
@@ -201,16 +213,40 @@ namespace gitmem
         }
     }
 
-    /* Evaluating a statement either returns whether the thread could progress
-     * (progress was made or it is waiting for some other thread) or
-     * the exceptional termination status of the thread.
+    /* Evaluating a statement either returns the resulting change of the program
+     * counter (0 if waiting for some other thread) or the exceptional
+     * termination status of the thread.
      */
-    std::variant<ProgressStatus, TerminationStatus> run_statement(Node stmt, GlobalContext &gctx, ThreadContext &ctx, const ThreadID& tid)
+    std::variant<int, TerminationStatus> run_statement(Node stmt, GlobalContext &gctx, ThreadContext &ctx, const ThreadID& tid)
     {
         auto s = stmt / Stmt;
         if (s == Nop)
         {
             verbose << "Nop" << std::endl;
+        }
+        else if (s == Jump)
+        {
+            auto cnst = s / Const;
+            auto delta = std::stoi(std::string(cnst->location().view()));
+            assert(delta > 0);
+            return delta;
+        }
+        else if (s == Cond)
+        {
+            auto expr = s / Expr;
+            auto cnst = s / Const;
+            auto result = evaluate_expression(expr, gctx, ctx);
+
+            if (auto b = std::get_if<size_t>(&result))
+            {
+                auto delta = std::stoi(std::string(cnst->location().view()));
+                assert(delta > 0);
+                return *b? 1 : delta;
+            }
+            else
+            {
+                return std::get<TerminationStatus>(result);
+            }
         }
         else if (s == Assign)
         {
@@ -293,7 +329,7 @@ namespace gitmem
             else
             {
                 verbose << "Waiting on thread " << result << std::endl;
-                return ProgressStatus::no_progress;
+                return 0;
             }
         }
         else if (s == Lock)
@@ -307,7 +343,7 @@ namespace gitmem
             auto& lock = gctx.locks[var];
             if (lock.owner) {
                 verbose << "Waiting for lock " << var << " owned by " << lock.owner.value() << std::endl;
-                return ProgressStatus::no_progress;
+                return 0;
             }
 
             lock.owner = tid;
@@ -376,7 +412,7 @@ namespace gitmem
         {
             throw std::runtime_error("Unknown statement: " + std::string(stmt->type().str()));
         }
-        return ProgressStatus::progress;
+        return 1;
     }
 
     /* Run a particular thread until it reaches a synchronisation point or until
@@ -403,21 +439,23 @@ namespace gitmem
                 return ProgressStatus::progress;
             }
 
-            auto prog_or_term = run_statement(stmt, gctx, ctx, tid);
-            if (std::holds_alternative<TerminationStatus>(prog_or_term))
+            auto delta_or_term = run_statement(stmt, gctx, ctx, tid);
+            if (auto term = std::get_if<TerminationStatus>(&delta_or_term))
             {
-                thread->terminated = std::get<TerminationStatus>(prog_or_term);
+                thread->terminated = *term;
                 thread_append_node<graph::End>(ctx);
-                return prog_or_term;
+                return *term;
             }
 
-            if(!(std::get<ProgressStatus>(prog_or_term)))
+            auto delta = std::get<int>(delta_or_term);
+
+            if(delta == 0)
             {
                 thread_append_node<graph::Pending>(ctx, std::string(stmt->location().view()));
                 return first_statement ? ProgressStatus::no_progress : ProgressStatus::progress;
             }
 
-            pc++;
+            pc += delta;
             first_statement = false;
         }
 
