@@ -16,14 +16,7 @@ int main(int argc, char **argv)
         "-o,--output",
         output_path,
         "Path to the output file."
-    )->check([](const std::string &s) {
-        if (s.empty()) return std::string{};
-        auto path = std::filesystem::path(s);
-        if (path.extension() != ".dot" && path.extension() != ".mmd") {
-            return std::string("Output file must have extenision .dot or .mmd");
-        }
-        return std::string{};
-    });
+    );
 
     bool verbose = false;
     app.add_flag(
@@ -77,7 +70,7 @@ int main(int argc, char **argv)
         }
 
         if (output_path.empty())
-            output_path = input_path.filename().replace_extension(".dot");
+            output_path = input_path.stem().replace_extension(".dot");
 
         gitmem::verbose << "Output will be written to " << output_path << std::endl;
 
