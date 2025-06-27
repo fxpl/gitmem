@@ -1,0 +1,17 @@
+x = 0;
+y = 0;
+$t1 = spawn {
+    if (x == 0) {
+        y = 1;
+    }
+};
+$t2 = spawn {
+    if (y == 0) {
+        x = 1;
+    }
+};
+join $t1;
+join $t2;
+assert (x != 0);
+assert (y != 0);
+assert (x == y);

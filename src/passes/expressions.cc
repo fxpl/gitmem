@@ -6,7 +6,7 @@ namespace gitmem
 
     PassDef expressions()
     {
-        auto Operand = T(Expr) << (T(Reg, Var, Const));
+        auto Operand = T(Expr) << (T(Reg, Var, Const, Add));
         return {
             "expressions",
             expressions_wf,
@@ -18,13 +18,20 @@ namespace gitmem
                         return Expr << _(Expr);
                     },
 
-                --In(Expr) * T(Spawn)[Spawn] << T(Brace) >>
+                --In(Expr) * T(Spawn)[Spawn] << (T(Brace) * End) >>
                     [](Match &_) -> Node
                     {
                         return Expr << _(Spawn);
                     },
 
-                --In(Expr) * T(Eq)[Eq] << (Operand * Operand * End) >>
+                // Additions must have *at least* two operands
+                --In(Expr) * T(Add)[Add] << (Operand * Operand) >>
+                    [](Match &_) -> Node
+                    {
+                        return Expr << _(Add);
+                    },
+
+                --In(Expr) * T(Eq, Neq)[Eq] << (Operand * Operand * End) >>
                     [](Match &_) -> Node
                     {
                         return Expr << _(Eq);
@@ -48,12 +55,18 @@ namespace gitmem
                         return _(Expr);
                     },
 
+                T(Paren) << (T(Expr)[Expr] * End) >>
+                    [](Match &_) -> Node
+                    {
+                        return _(Expr);
+                    },
+
                 // Error rules
-                In(Group) * T(Expr) * Any[Expr] >>
+                In(Group) * T(Expr) * (!T(Brace))[Expr] >>
                     [](Match &_) -> Node
                     {
                         return Error << (ErrorAst << _(Expr))
-                                     << (ErrorMsg ^ "Unexpected term (did you forget a semicolon?)");
+                                     << (ErrorMsg ^ "Unexpected term (did you forget a brace or a semicolon?)");
                     },
 
                 In(Group) * Any * T(Expr)[Expr] >>
@@ -77,32 +90,33 @@ namespace gitmem
                                      << (ErrorMsg ^ "Invalid body of spawn");
                     },
 
-                --In(Expr) * T(Eq)[Eq] << (Any * End) >>
+                --In(Expr) * T(Add)[Add] << ((T(Group) << End) / (Any * (T(Group) << End))) >>
+                    [](Match &_) -> Node
+                    {
+                        return Error << (ErrorAst << _(Add))
+                                     << (ErrorMsg ^ "Expected operand");
+                    },
+
+                --In(Expr) * T(Add)[Add] << (Any) >>
+                    [](Match &_) -> Node
+                    {
+                        return Error << (ErrorAst << _(Add))
+                                     << (ErrorMsg ^ "Invalid operands for addition");
+                    },
+
+
+                --In(Expr) * T(Eq, Neq)[Eq] << (Any * (T(Group) << End)) >>
                     [](Match &_) -> Node
                     {
                         return Error << (ErrorAst << _(Eq))
                                      << (ErrorMsg ^ "Expected right-hand side of equality");
                     },
 
-                --In(Expr) * T(Eq)[Eq] << Any >>
+                --In(Expr) * T(Eq, Neq)[Eq] << Any >>
                     [](Match &_) -> Node
                     {
                         return Error << (ErrorAst << _(Eq))
                                      << (ErrorMsg ^ "Bad equality");
-                    },
-
-                Any * T(Brace)[Brace] >>
-                    [](Match &_) -> Node
-                    {
-                        return Error << (ErrorAst << _(Brace))
-                                     << (ErrorMsg ^ "Unexpected block");
-                    },
-
-                T(Brace)[Brace] * Any >>
-                    [](Match &_) -> Node
-                    {
-                        return Error << (ErrorAst << _(Brace))
-                                     << (ErrorMsg ^ "Expected semicolon after block");
                     },
 
                 Any * T(Paren)[Paren] >>
@@ -116,7 +130,7 @@ namespace gitmem
                     [](Match &_) -> Node
                     {
                         return Error << (ErrorAst << _(Expr))
-                                     << (ErrorMsg ^ "Unexpected term (did you forget a semicolon?)");
+                                     << (ErrorMsg ^ "Unexpected term (did you forget a brace or semicolon?)");
                     },
 
             }};

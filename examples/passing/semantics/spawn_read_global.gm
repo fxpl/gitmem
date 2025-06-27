@@ -5,4 +5,4 @@ $t = spawn {
   x = 42;
   assert(x == 42);
 };
-assert(x == y)
+assert(x == y);

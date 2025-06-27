@@ -8,7 +8,7 @@ namespace gitmem
     {
         return {
             "check_refs",
-            wf,
+            statements_wf,
             dir::bottomup | dir::once,
             {
                 In(Expr) * T(Reg)[Reg] >>

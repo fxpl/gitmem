@@ -6,7 +6,8 @@ namespace gitmem
 
     PassDef statements()
     {
-        auto RVal = T(Expr) << (T(Reg, Var, Const, Spawn));
+        auto RVal = T(Expr) << (T(Reg, Var, Add, Const, Spawn));
+        auto Condition = T(Expr) << (T(Eq, Neq));
         return {
             "statements",
             statements_wf,
@@ -57,10 +58,25 @@ namespace gitmem
                                                << _(Expr));
                     },
 
-                --In(Stmt) * T(Assert) << (T(Paren) << ((T(Expr)[Expr] << T(Eq)) * End)) >>
+                --In(Stmt) * T(Assert) << (Condition[Expr] * End) >>
                     [](Match &_) -> Node
                     {
                         return Stmt << (Assert << _(Expr));
+                    },
+
+                --In(Stmt) * (T(Group) << (T(If) << (T(Group) << (Condition[Expr] * T(Block)[Then])) * End))
+                           * (T(Group) << ((T(Else) << T(Block)[Else]) * End)) >>
+                    [](Match &_) -> Node
+                    {
+                        return Stmt << (If << _(Expr) << _(Then) << _(Else));
+                    },
+
+                --In(Stmt) * (T(Group) << (T(If) << (T(Group) << (T(Expr)[Expr] * T(Block)[Then])) * End)) >>
+                    [](Match &_) -> Node
+                    {
+                        return Stmt << (If << _(Expr)
+                                           << _(Then)
+                                           << (Block << ((Stmt ^ "nop") << Nop)));
                     },
 
                 T(Group) << (T(Stmt)[Stmt] * End) >>
@@ -70,13 +86,6 @@ namespace gitmem
                     },
 
                 // Error rules
-                T(Group) << End >>
-                    [](Match &_) -> Node
-                    {
-                        return Error << (ErrorAst << _(Group))
-                                     << (ErrorMsg ^ "Expected statement");
-                    },
-
                 In(Group) * T(Stmt) * Any[Expr] >>
                     [](Match &_) -> Node
                     {
@@ -105,13 +114,6 @@ namespace gitmem
                                      << (ErrorMsg ^ "Unexpected block");
                     },
 
-                In(Brace, File, Semi) * (!T(Stmt, Semi, Block))[Expr] >>
-                    [](Match &_) -> Node
-                    {
-                        return Error << (ErrorAst << _(Expr))
-                                     << (ErrorMsg ^ "Expected statement");
-                    },
-
                 --In(Stmt) * T(Join) << End >>
                     [](Match &_) -> Node
                     {
@@ -123,7 +125,7 @@ namespace gitmem
                     [](Match &_) -> Node
                     {
                         return Error << (ErrorAst << _(Expr))
-                                     << (ErrorMsg ^ "Bad thread identifier");
+                                     << (ErrorMsg ^ "Invalid thread identifier");
                     },
 
                 --In(Stmt) * T(Lock, Unlock) << End >>
@@ -137,7 +139,7 @@ namespace gitmem
                     [](Match &_) -> Node
                     {
                         return Error << (ErrorAst << _(Expr))
-                                     << (ErrorMsg ^ "Bad lock identifier");
+                                     << (ErrorMsg ^ "Invalid lock identifier");
                     },
 
                 --In(Stmt) * T(Assign) << (Any * End) >>
@@ -161,25 +163,39 @@ namespace gitmem
                                      << (ErrorMsg ^ "Invalid left-hand side to assignment");
                     },
 
-                --In(Stmt) * T(Assert)[Assert] << End >>
+                --In(Stmt) * T(Assert)[Assert] << (T(Group) << End) >>
                     [](Match &_) -> Node
                     {
                         return Error << (ErrorAst << _(Assert))
-                                     << (ErrorMsg ^ "Expected assertion");
+                                     << (ErrorMsg ^ "Expected condition");
                     },
 
-                --In(Stmt) * T(Assert)[Assert] << (Any * End) >>
+                --In(Stmt) * T(Assert) << (Any[Expr] * End) >>
                     [](Match &_) -> Node
                     {
-                        return Error << (ErrorAst << _(Assert))
-                                     << (ErrorMsg ^ "Bad assertion");
+                        return Error << (ErrorAst << _(Expr))
+                                     << (ErrorMsg ^ "Invalid assertion");
+                    },
+
+                In(If) * (Start * T(Block)[Expr]) / (T(Group) << (!Condition)[Expr]) >>
+                    [](Match &_) -> Node
+                    {
+                        return Error << (ErrorAst << _(Expr))
+                                     << (ErrorMsg ^ "Invalid condition");
                     },
 
                 In(File, Brace) * T(Stmt)[Stmt] >>
-                    [](Match &_) -> Node
+                [](Match &_) -> Node
                     {
                         return Error << (ErrorAst << _(Stmt))
                                      << (ErrorMsg ^ "Expected semicolon");
+                    },
+
+                In(Brace, File, Semi) * (!T(Stmt, Semi, Block))[Expr] >>
+                    [](Match &_) -> Node
+                    {
+                        return Error << (ErrorAst << _(Expr))
+                                     << (ErrorMsg ^ "Expected statement");
                     },
             }};
     }
