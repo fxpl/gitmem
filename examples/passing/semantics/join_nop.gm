@@ -1,4 +1,4 @@
 x = 2;
 $t = spawn { nop; };
 join $t;
-assert(x == 2)
+assert(x == 2);

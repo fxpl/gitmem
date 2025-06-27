@@ -30,6 +30,12 @@ namespace gitmem
   inline const auto Unlock = TokenDef("unlock");
   inline const auto Nop = TokenDef("nop");
   inline const auto Assert = TokenDef("assert");
+  inline const auto If = TokenDef("if");
+  inline const auto Else = TokenDef("else");
+
+  // Branching
+  inline const auto Jump = TokenDef("jump");
+  inline const auto Cond = TokenDef("cond");
 
   // Grouping tokens
   inline const auto Brace = TokenDef("brace");
@@ -44,6 +50,7 @@ namespace gitmem
   inline const auto Lhs = TokenDef("lhs");
   inline const auto Rhs = TokenDef("rhs");
   inline const auto Op = TokenDef("op");
+  inline const auto Then = TokenDef("then");
 
   // Well-formedness
   // clang-format off
@@ -56,12 +63,14 @@ namespace gitmem
   | (Eq <<= (Lhs >>= Expr) * (Rhs >>= Expr))
   | (Neq <<= (Lhs >>= Expr) * (Rhs >>= Expr))
   | (Add <<= Expr++[2])
-  | (Stmt <<= (Nop | Assign | Join | Lock | Unlock | Assert))
+  | (Stmt <<= (Nop | Assign | Join | Lock | Unlock | Assert | If))
   | (Assign <<= ((LVal >>= (Reg | Var)) * Expr))[LVal]
   | (Join <<= Expr)
   | (Lock <<= Var)
   | (Unlock <<= Var)
   | (Assert <<= Expr)
+  | (Jump <<= Const)
+  | (Cond <<= Expr * Const)
   ;
   // clang-format on
 

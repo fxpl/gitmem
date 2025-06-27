@@ -72,7 +72,7 @@ namespace gitmem
         "!=" >> [infix](auto& m) { infix(m, Neq); },
 
         // Statements
-        ";" >> [](auto& m) { m.seq(Semi, {Assign, Spawn, Join, Lock, Unlock, Assert, Eq, Neq, Add, Group}); },
+        ";" >> [](auto& m) { m.seq(Semi, {Assign, Spawn, Join, Lock, Unlock, Assert, If, Else, Eq, Neq, Add, Group}); },
         "=" >> [infix](auto& m) { infix(m, Assign); },
         "spawn" >> [](auto& m) { m.push(Spawn); },
         "join" >> [](auto& m) { m.push(Join); },
@@ -81,20 +81,55 @@ namespace gitmem
         "assert" >> [](auto& m) { m.push(Assert); },
         "nop" >> [](auto& m) { m.add(Nop); },
 
+        "if" >> [](auto& m) { m.push(If); },
+        "else" >> [pop_until](auto &m)
+        {
+          pop_until(m, Semi, {Brace, Paren, File});
+          m.push(Else);
+        },
+
         // Variables
         R"(\$[_[:alpha:]][_[:alnum:]]*)" >> [](auto& m) { m.add(Reg); },
         R"([_[:alpha:]][_[:alnum:]]*)" >> [](auto& m) { m.add(Var); },
 
         // Grouping
         "\\{" >> [](auto& m) { m.push(Brace); },
-        "\\}" >> [pop_until](auto& m) { pop_until(m, Brace, {Paren}); m.term(); m.pop(Brace); m.extend(Brace); },
+        "\\}" >> [pop_until](auto& m)
+        {
+          pop_until(m, Brace, {Paren});
+          m.term();
+          m.pop(Brace);
+          m.extend(Brace);
+          if (m.group_in(If))
+          {
+            m.term();
+            m.pop(If);
+          }
+          else if (m.group_in(Else))
+          {
+            m.term();
+            m.pop(Else);
+          }
+          if (m.group_in({Semi, Brace, File}))
+          {
+            m.seq(Semi);
+          }
+        },
 
         "\\(" >> [](auto& m) { m.push(Paren); },
-        "\\)" >> [pop_until](auto& m) { pop_until(m, Paren, {Brace}); m.term(); m.pop(Paren); m.extend(Paren); },
+        "\\)" >> [pop_until](auto& m)
+        {
+          pop_until(m, Paren, {Brace});
+          m.term();
+          m.pop(Paren);
+          m.extend(Paren);
+        },
     }
     );
 
     p.done([pop_until](auto& m) {
+      if (!m.in(Semi))
+        m.error("Expected ';' at end of file");
       pop_until(m, File, {Brace, Paren});
     });
 

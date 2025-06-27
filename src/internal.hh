@@ -9,10 +9,11 @@ namespace gitmem
   PassDef expressions();
   PassDef statements();
   PassDef check_refs();
+  PassDef branching();
 
   inline const auto parse_token =
      Reg | Var | Const | Nop | Brace | Paren |
-     Spawn | Join | Lock | Unlock | Assert;
+     Spawn | Join | Lock | Unlock | Assert | If | Else;
 
   inline const auto parse_op = Group | Assign | Eq | Neq | Add | Semi;
 
@@ -30,12 +31,14 @@ namespace gitmem
     | (Lock <<= ~parse_op)
     | (Unlock <<= ~parse_op)
     | (Assert <<= ~parse_op)
+    | (If <<= ~parse_op)
+    | (Else <<= ~parse_op)
     | (Brace <<= ~parse_op)
     | (Paren <<= ~parse_op)
     | (Group <<= parse_token++)
 		;
 
-		inline const auto expressions_token = parse_token - Reg - Var - Const - Spawn - Brace - Paren;
+		inline const auto expressions_token = parse_token - Reg - Var - Const - Spawn - Paren | Expr;
     inline const auto expressions_op = parse_op | Brace | Paren | Expr;
 
   inline const wf::Wellformed expressions_wf =
@@ -54,6 +57,8 @@ namespace gitmem
     | (Lock <<= ~expressions_op)
     | (Unlock <<= ~expressions_op)
     | (Assert <<= ~expressions_op)
+    | (If <<= ~expressions_op)
+    | (Else <<= ~expressions_op)
     | (Group <<= expressions_token++)
     ;
 
@@ -62,12 +67,20 @@ namespace gitmem
     | (File <<= Block)
     | (Spawn <<= Block)
     | (Block <<= Stmt++[1])
-    | (Stmt <<= (Nop | Assign | Join | Lock | Unlock | Assert))
+    | (Stmt <<= (Nop | Assign | Join | Lock | Unlock | Assert | If))
     | (Assign <<= ((LVal >>= (Reg | Var)) * Expr))[LVal]
     | (Join <<= Expr)
     | (Lock <<= Var)
     | (Unlock <<= Var)
     | (Assert <<= Expr)
+    | (If <<= Expr * (Then >>= Block) * (Else >>= Block))
+    ;
+
+  inline const wf::Wellformed branching_wf =
+    statements_wf - If
+    | (Stmt <<= (Nop | Assign | Join | Lock | Unlock | Assert | Jump | Cond))
+    | (Jump <<= Const)
+    | (Cond <<= Expr * Const)
     ;
   // clang-format on
 }

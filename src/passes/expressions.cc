@@ -62,11 +62,11 @@ namespace gitmem
                     },
 
                 // Error rules
-                In(Group) * T(Expr) * Any[Expr] >>
+                In(Group) * T(Expr) * (!T(Brace))[Expr] >>
                     [](Match &_) -> Node
                     {
                         return Error << (ErrorAst << _(Expr))
-                                     << (ErrorMsg ^ "Unexpected term (did you forget a semicolon?)");
+                                     << (ErrorMsg ^ "Unexpected term (did you forget a brace or a semicolon?)");
                     },
 
                 In(Group) * Any * T(Expr)[Expr] >>
@@ -119,19 +119,19 @@ namespace gitmem
                                      << (ErrorMsg ^ "Bad equality");
                     },
 
-                Any * T(Brace)[Brace] >>
-                    [](Match &_) -> Node
-                    {
-                        return Error << (ErrorAst << _(Brace))
-                                     << (ErrorMsg ^ "Unexpected block");
-                    },
+                // Any * T(Brace)[Brace] >>
+                //     [](Match &_) -> Node
+                //     {
+                //         return Error << (ErrorAst << _(Brace))
+                //                      << (ErrorMsg ^ "Unexpected block");
+                //     },
 
-                T(Brace)[Brace] * Any >>
-                    [](Match &_) -> Node
-                    {
-                        return Error << (ErrorAst << _(Brace))
-                                     << (ErrorMsg ^ "Expected semicolon after block");
-                    },
+                // T(Brace)[Brace] * Any >>
+                //     [](Match &_) -> Node
+                //     {
+                //         return Error << (ErrorAst << _(Brace))
+                //                      << (ErrorMsg ^ "Expected semicolon after block");
+                //     },
 
                 Any * T(Paren)[Paren] >>
                     [](Match &_) -> Node
@@ -144,7 +144,7 @@ namespace gitmem
                     [](Match &_) -> Node
                     {
                         return Error << (ErrorAst << _(Expr))
-                                     << (ErrorMsg ^ "Unexpected term (did you forget a semicolon?)");
+                                     << (ErrorMsg ^ "Unexpected term (did you forget a brace or semicolon?)");
                     },
 
             }};
