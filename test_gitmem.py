@@ -7,7 +7,7 @@ EXAMPLES_DIR = "examples"
 
 def run_gitmem_test(gitmem_path, file_path, should_pass):
     try:
-        result = subprocess.run([gitmem_path, file_path, "-o /dev/null"], capture_output=True, text=True)
+        result = subprocess.run([gitmem_path, file_path, "-e", "-o", "/dev/null"], capture_output=True, text=True)
         passed = (result.returncode == 0)
     except FileNotFoundError:
         print(f"Error: '{gitmem_path}' executable not found.")
