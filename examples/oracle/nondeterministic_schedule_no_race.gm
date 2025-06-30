@@ -1,0 +1,24 @@
+// An example to demonstrate that locks communicate state change and that we
+// can fail assertions due to non-deterministic but non-racy actions.
+// If t1 runs gets the lock l first then last assertion of thread 2 will fail.
+
+x = 0;
+
+$t1 = spawn {
+  assert(x == 0);
+  lock l;
+  assert(x == 0);
+  x = 1;
+  unlock l;
+};
+
+$t2 = spawn {
+  assert(x == 0);
+  lock l;
+  $y = x;
+  unlock l;
+  assert($y == 1); // this can fail
+};
+
+join $t1;
+join $t2;
