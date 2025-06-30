@@ -1,9 +1,10 @@
 // This is an analogy to the transactional beans example which i can't
 // find a source for.
 
-// There is a pot accessible by two threads, both threads start a transaction
-// one thread flips all blacks beans to white and asserts the beans are the same
-// colour. The other flips all white beans to black and asserts they are the
+// There is a pot accessible by two threads that has white and black beans,
+// both threads start a transaction one thread flips all blacks beans to white
+// and asserts the beans are the same colour.
+// The other flips all white beans to black and asserts they are the
 // the same colour. The two threads pass their assertions and commit their
 // non-conflicting writes. A later subsequent thread can then assert that
 // the beans are NOT all the same colour as they have all been flipped
