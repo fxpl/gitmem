@@ -39,3 +39,10 @@ The build script creates two executables:
   be used to inspect the parsed source code and test the parser.
   Running `gitmem_trieste build foo.gm` will create a file
   `foo.trieste` with the parsed source code as an S-expression.
+
+## VSCode Extension
+
+You should be able to use `Developer: Install Extension from
+Location` in the VSCode command palette to install a rudimentary
+extension in the `gitmem-extension` directory and get syntax
+highlighting..

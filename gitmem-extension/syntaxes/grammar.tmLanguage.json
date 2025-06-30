@@ -1,0 +1,64 @@
+{
+  "scopeName": "source.gitmem",
+  "name": "gitmem",
+  "patterns": [
+    { "include": "#keywords" },
+    { "include": "#numbers" },
+    { "include": "#comments" },
+    { "include": "#operators" }
+  ],
+  "repository": {
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.gitmem",
+          "match": "\\b(nop|spawn|join|lock|unlock|assert|if|else)\\b"
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.gitmem",
+          "match": "\\b\\d+\\b"
+        }
+      ]
+    },
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.gitmem",
+          "match": "//.*$"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.assignment.gitmem",
+          "match": "="
+        },
+        {
+          "name": "keyword.operator.comparison.gitmem",
+          "match": "=="
+        },
+        {
+          "name": "keyword.operator.arithmetic.gitmem",
+          "match": "\\+"
+        },
+        {
+          "name": "punctuation.terminator.statement.gitmem",
+          "match": ";"
+        },
+        {
+          "name": "punctuation.section.block.begin.gitmem",
+          "match": "\\{"
+        },
+        {
+          "name": "punctuation.section.block.end.gitmem",
+          "match": "\\}"
+        }
+      ]
+    }
+  }
+}
