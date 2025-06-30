@@ -1,0 +1,25 @@
+{
+  "name": "gitmem",
+  "displayName": "gitmem",
+  "description": "",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.101.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [{
+      "id": "gitmem",
+      "aliases": ["gitmem", "gitmem"],
+      "extensions": [".gm"],
+      "configuration": "./language-configuration.json"
+    }],
+    "grammars": [{
+      "language": "gitmem",
+      "scopeName": "source.gitmem",
+      "path": "./syntaxes/grammar.tmLanguage.json"
+    }]
+  }
+}
