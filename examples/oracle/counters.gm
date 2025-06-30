@@ -1,0 +1,9 @@
+// Two threads update the same 'variable' to the same value but there
+// should still be a race
+
+x = 0;
+$t = spawn {
+  x = 1;
+};
+x = 1;
+join $t; // Data race

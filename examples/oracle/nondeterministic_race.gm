@@ -1,0 +1,24 @@
+// An example to demonstrate that a program may exhibit a data race in some
+// but not all executions. Two threads access a global variable, but one has
+// the synchronisation and the mutation incorrectly ordered.
+// If t2 gets the lock first then there is no race, but if t1 gets the lock
+// first then there is a race.
+
+x = 0;
+
+$t1 = spawn {
+  lock l;
+  x = 1;
+  unlock l;
+};
+
+$t2 = spawn {
+  x = 2;
+  lock l;
+  unlock l;
+};
+
+join $t1;
+assert(x == 1);
+join $t2;
+assert(x == 2);

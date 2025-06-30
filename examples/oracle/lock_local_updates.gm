@@ -1,0 +1,37 @@
+// An example to demonstrate that locks are associated with the variable
+// mutations that they protect and there isn't a central global store of
+// changes.
+
+x = 0;
+y = 0;
+
+$t1 = spawn {
+  assert(x == 0);
+  assert(y == 0);
+  // Thread t1 protects updates to x using l1 and doesn't see
+  // updates to y
+  lock l1;
+  x = 1;
+  unlock l1;
+  assert(x == 1);
+  assert(y == 0);
+};
+
+$t2 = spawn {
+  assert(x == 0);
+  assert(y == 0);
+  // Thread t2 protects updates to y using l2 and doesn't see
+  // updates to x
+  lock l2;
+  y = 1;
+  unlock l2;
+  assert(x == 0);
+  assert(y == 1);
+};
+
+join $t1;
+join $t2;
+
+// Thread t0 joins on t1 and t2 and then gets both updates to x and y
+assert(x == 1);
+assert(x == y);

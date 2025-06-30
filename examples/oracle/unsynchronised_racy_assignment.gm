@@ -1,0 +1,25 @@
+// Share a global variable across two thread such that normally there
+// would be a read/write race.
+// In Java/C++ if the write constructed a new object, the reader
+// could see a partially initialised object and crash the program.
+
+x = 1;
+
+$t1 = spawn {
+  // The spawned thread inherits the heap state from the spawning thread
+  assert(x == 1);
+  x = x + 1;
+  assert(x == 2);
+};
+
+$t2 = spawn {
+  // The spawned thread inherits the heap state from the spawning thread
+  // and will never see the state changes from t1
+  assert(x == 1);
+};
+
+// At the join, there is no race as only one thread wrote to x.
+// The joining thread will merge the changes into its local state.
+join $t1;
+join $t2;
+assert(x == 2);

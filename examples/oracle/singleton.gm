@@ -1,0 +1,55 @@
+// Construct the singleton pattern:
+// A shared variable should be initialised only once by any thread
+// Once initialised all threads should read the same value
+// Perform the initialisation using double checked locking
+// Each thread:
+//  1.    Checks the variable
+//  1a.   If it is uninitialised (here we use 0), then take the lock
+//  1b.   Taking the lock may pull in other thread updates, so check if the
+//        variable is still uninitialised
+//  1bi.  If the variable is still uninitialised then we know we need to
+//        initialise it. So do that and store the initialised value in a local
+//        var.
+//  1bii. Otherwise the variable was initialised and we can read the value
+//  2a.   Otherwise the variable was initialised and we can read the value
+//  3.    Check that in all code paths we read the expected initialised value
+
+x = 0;
+
+$t1 = spawn {
+  $y = 0;
+  if (x == 0) {
+    lock l;
+    if (x == 0) {
+      $y = 1;
+      x = $y;
+    } else {
+      $y = x;
+    }
+    unlock l;
+  } else {
+    $y = x;
+  }
+  assert($y == 1);
+};
+
+$t2 = spawn {
+  $y = 0;
+  if (x == 0) {
+    lock l;
+    if (x == 0) {
+      $y = 1;
+      x = $y;
+    } else {
+      $y = x;
+    }
+    unlock l;
+  } else {
+    $y = x;
+  }
+  assert($y == 1);
+};
+
+join $t1;
+join $t2;
+assert(x == 1);
