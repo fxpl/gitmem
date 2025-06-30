@@ -3,7 +3,21 @@
 
 x = 0;
 $t = spawn {
+  // The thread inherits a copy of the snapshot of the heap state known by the
+  // spawning thread at the point when the thread was spawned.
+  // So we always know that the assert(x == 0) will succeed.
+  // This thread will then proceed to mutate its versioned copy of the heap.
+  assert(x == 0);
   x = 1;
 };
+
+// The spawning thread continues but will mutate and read only from its version
+// of the heap which is isolated from the thread it just spawned. So, we know
+// that assert(x == 0) will always succeed.
+assert(x == 0);
 x = 1;
+
+// When we join the threads, the joining thread will attempt to pull in the
+// changes made to the thread. Even thought the two values are the same, this
+// represents a data race and so we have to crash.
 join $t; // Data race

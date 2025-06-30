@@ -1,0 +1,37 @@
+// This is an analogy to the transactional beans example which i can't
+// find a source for.
+
+// There is a pot accessible by two threads, both threads start a transaction
+// one thread flips all blacks beans to white and asserts the beans are the same
+// colour. The other flips all white beans to black and asserts they are the
+// the same colour. The two threads pass their assertions and commit their
+// non-conflicting writes. A later subsequent thread can then assert that
+// the beans are NOT all the same colour as they have all been flipped
+// to their opposite colours.
+
+// In this example, we have two variables x and y that are not the same
+// value. In one thread we assign the value of y to x and in the other
+// we assign the value of x to y. Each thread then sees the two variables
+// as equal, but when a thread joins on both threads the result will
+// be that the two variables are not equal.
+
+x = 0;
+y = 1;
+
+$t1 = spawn {
+  assert (x != y);
+  x = y;
+  assert(x == y);
+};
+
+$t2 = spawn {
+  assert (x != y);
+  y = x;
+  assert(x == y);
+};
+
+assert(x != y);
+join $t1;
+assert(x == y);
+join $t2;
+assert(x != y);
