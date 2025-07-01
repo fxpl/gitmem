@@ -41,8 +41,12 @@ namespace graph {
     emitEdge(from, to, "sync", "style=bold, constraint=false");
   }
 
+  void GraphvizPrinter::emitFillColor(const Node* n, const std::string& color) {
+    file << "\t" << (size_t)n << "[fillcolor = " << color << "];" << std::endl;
+  }
+
   void GraphvizPrinter::emitConflict(const Node* n, const Conflict& conflict) {
-    file << "\t" << (size_t)n << "[fillcolor = red];" << std::endl;
+    emitFillColor(n, "red");
     auto [s1, s2] = conflict.sources;
     emitConflictEdge(n, s1.get());
     emitConflictEdge(n, s2.get());
@@ -127,6 +131,13 @@ namespace graph {
 
   void GraphvizPrinter::visitUnlock(const Unlock* n) {
     emitNode(n, "Unlock " + n->var);
+    emitProgramOrderEdge(n, n->next.get());
+    visitProgramOrder(n->next.get());
+  }
+
+  void GraphvizPrinter::visitAssertionFailure(const AssertionFailure* n) {
+    emitNode(n, "Assert " + n->cond);
+    emitFillColor(n, "red");
     emitProgramOrderEdge(n, n->next.get());
     visitProgramOrder(n->next.get());
   }

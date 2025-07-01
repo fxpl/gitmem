@@ -26,6 +26,7 @@ namespace gitmem {
     struct Join;
     struct Lock;
     struct Unlock;
+    struct AssertionFailure;
     struct Pending;
 
     struct Conflict
@@ -44,6 +45,7 @@ namespace gitmem {
       virtual void visitJoin(const Join*) = 0;
       virtual void visitLock(const Lock*) = 0;
       virtual void visitUnlock(const Unlock*) = 0;
+      virtual void visitAssertionFailure(const AssertionFailure*) = 0;
       virtual void visitPending(const Pending*) = 0;
       virtual void visit(const Node* n) { n->accept(this); }
     };
@@ -146,9 +148,22 @@ namespace gitmem {
       const std::string var;
 
       Unlock(const std::string var): var(var) {}
+
       void accept(Visitor* v) const override
       {
         v->visitUnlock(this);
+      }
+    };
+
+    struct AssertionFailure : Node
+    {
+      const std::string cond;
+
+      AssertionFailure(const std::string &cond): cond(cond) {}
+
+      void accept(Visitor* v) const override
+      {
+        v->visitAssertionFailure(this);
       }
     };
 
