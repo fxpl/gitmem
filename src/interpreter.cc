@@ -400,6 +400,7 @@ namespace gitmem
                 else
                 {
                     verbose << "Assertion failed: " << expr->location().view() << std::endl;
+                    thread_append_node<graph::AssertionFailure>(ctx, std::string(expr->location().view()));
                     return TerminationStatus::assertion_failure_exception;
                 }
             }
