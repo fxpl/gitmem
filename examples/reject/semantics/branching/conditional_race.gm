@@ -1,3 +1,6 @@
+// The racy schedule 0 1 1 1 2 2 2 0 0 (thread 1 gets the lock first)
+// thread 1 r and flag inside a lock, and then mutates x outside of a lock
+// thread 2 sees the set flag inside of a lock, and also mutates x outside of a lock
 x = 0;
 y = 0;
 flag = 0;

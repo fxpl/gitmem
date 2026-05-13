@@ -1,0 +1,11 @@
+x = 0;
+$t = spawn {
+  lock l1;
+  x = 42;
+  unlock l1;
+};
+lock l1;
+x = 2;
+unlock l1;
+lock l1;
+unlock l1;

@@ -1,0 +1,6 @@
+x = 0;
+$t = spawn {
+    x = 1;
+};
+join $t;
+assert(x == 0);

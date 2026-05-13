@@ -1,181 +1,183 @@
 #pragma once
 
+#include <fstream>
 #include <unordered_map>
 #include <vector>
-#include <unordered_map>
-#include <fstream>
+#include <variant>
 
 namespace gitmem {
 
-  namespace graph {
+namespace graph {
 
-    struct Visitor;
+struct Visitor;
 
-    struct Node
-    {
-      std::shared_ptr<const Node> next = nullptr;
+struct Node {
+  std::shared_ptr<const Node> next = nullptr;
 
-      virtual void accept(Visitor*) const = 0;
-    };
+  virtual void accept(Visitor *) const = 0;
+};
 
-    struct Start;
-    struct End;
-    struct Write;
-    struct Read;
-    struct Spawn;
-    struct Join;
-    struct Lock;
-    struct Unlock;
-    struct AssertionFailure;
-    struct Pending;
+struct Start;
+struct End;
+struct Write;
+struct Read;
+struct Spawn;
+struct Join;
+struct Lock;
+struct Unlock;
+struct Assertion;
+struct Pending;
 
-    struct Conflict
-    {
-        std::string var;
-        std::pair<std::shared_ptr<Node>, std::shared_ptr<Node>> sources;
-    };
+struct Conflict {
+  std::string var;
+  // Optional: if we can determine the conflicting nodes, store them here
+  // Otherwise these can be nullptr and we just mark the node red
+  std::pair<std::shared_ptr<Node>, std::shared_ptr<Node>> sources;
 
-    struct Visitor
-    {
-      virtual void visitStart(const Start*) = 0;
-      virtual void visitEnd(const End*) = 0;
-      virtual void visitWrite(const Write*) = 0;
-      virtual void visitRead(const Read*) = 0;
-      virtual void visitSpawn(const Spawn*) = 0;
-      virtual void visitJoin(const Join*) = 0;
-      virtual void visitLock(const Lock*) = 0;
-      virtual void visitUnlock(const Unlock*) = 0;
-      virtual void visitAssertionFailure(const AssertionFailure*) = 0;
-      virtual void visitPending(const Pending*) = 0;
-      virtual void visit(const Node* n) { n->accept(this); }
-    };
+  // Constructor that allows creating conflicts without sources
+  Conflict(std::string v) : var(std::move(v)), sources{nullptr, nullptr} {}
+  Conflict(std::string v, std::pair<std::shared_ptr<Node>, std::shared_ptr<Node>> s)
+      : var(std::move(v)), sources(std::move(s)) {}
+};
 
-    struct Start : Node
-    {
-      size_t id;
+struct Visitor {
+  virtual void visitStart(const Start *) = 0;
+  virtual void visitEnd(const End *) = 0;
+  virtual void visitWrite(const Write *) = 0;
+  virtual void visitRead(const Read *) = 0;
+  virtual void visitSpawn(const Spawn *) = 0;
+  virtual void visitJoin(const Join *) = 0;
+  virtual void visitLock(const Lock *) = 0;
+  virtual void visitUnlock(const Unlock *) = 0;
+  virtual void visitAssertion(const Assertion *) = 0;
+  virtual void visitPending(const Pending *) = 0;
+  virtual void visit(const Node *n) { n->accept(this); }
+};
 
-      Start(size_t id): id(id) {}
+struct Start : Node {
+  size_t id;
 
-      void accept(Visitor* v) const override
-      {
-        v->visitStart(this);
-      }
-    };
+  Start(size_t id) : id(id) {}
 
-    struct End : Node
-    {
-      End() {}
+  void accept(Visitor *v) const override { v->visitStart(this); }
+};
 
-      void accept(Visitor* v) const override
-      {
-        v->visitEnd(this);
-      }
-    };
+struct End : Node {
+  End() {}
 
-    struct Write : Node
-    {
-      const std::string var;
-      const size_t value;
-      const size_t id;
+  void accept(Visitor *v) const override { v->visitEnd(this); }
+};
 
-      Write(const std::string var, const size_t value, const size_t id): var(var), value(value), id(id) {}
+struct Write : Node {
+  const std::string var;
+  const size_t value;
+  const size_t id;
 
-      void accept(Visitor* v) const override
-      {
-        v->visitWrite(this);
-      }
-    };
+  Write(const std::string var, const size_t value, const size_t id)
+      : var(var), value(value), id(id) {}
 
-    struct Read : Node
-    {
-      const std::string var;
-      const size_t value;
-      const size_t id;
-      const std::shared_ptr<const Node> sauce;
+  void accept(Visitor *v) const override { v->visitWrite(this); }
+};
 
+struct Read : Node {
+  const std::string var;
+  const size_t id;
 
-      Read(const std::string var, const size_t value, const size_t id, const std::shared_ptr<const Node> sauce): var(var), value(value), id(id), sauce(sauce) {}
+  struct SuccessfulRead {
+    size_t value;
+    std::shared_ptr<const Node> source;
+  };
 
-      void accept(Visitor* v) const override
-      {
-        v->visitRead(this);
-      }
-    };
+  std::variant<SuccessfulRead, Conflict> read_result;
 
-    struct Spawn : Node
-    {
-      const size_t tid;
-      const std::shared_ptr<const Node> spawned;
+  // Constructor for successful read
+  Read(const std::string var, const size_t value, const size_t id,
+       const std::shared_ptr<const Node> source)
+      : var(var), id(id), read_result(SuccessfulRead{value, source}) {}
 
-      Spawn(const size_t tid, const std::shared_ptr<const Node> spawned): tid(tid), spawned(spawned) {}
+  // Constructor for conflicting read
+  Read(const std::string var, const size_t id, Conflict conflict)
+      : var(var), id(id), read_result(std::move(conflict)) {}
 
-      void accept(Visitor* v) const override
-      {
-        v->visitSpawn(this);
-      }
-    };
-
-    struct Join : Node
-    {
-      const size_t tid;
-      const std::shared_ptr<const Node> joinee;
-      const std::optional<Conflict> conflict;
-
-      Join(const size_t tid,  const std::shared_ptr<const Node> joinee, std::optional<Conflict> conflict = std::nullopt): tid(tid), joinee(joinee), conflict(conflict) {}
-
-      void accept(Visitor* v) const override
-      {
-        v->visitJoin(this);
-      }
-    };
-
-    struct Lock : Node
-    {
-      const std::string var;
-      const std::shared_ptr<const Node> ordered_after;
-      const std::optional<Conflict> conflict;
-
-      Lock(const std::string var,  const std::shared_ptr<const Node> ordered_after, std::optional<Conflict> conflict = std::nullopt): var(var), ordered_after(ordered_after), conflict(conflict) {}
-
-      void accept(Visitor* v) const override
-      {
-        v->visitLock(this);
-      }
-    };
-
-    struct Unlock : Node
-    {
-      const std::string var;
-
-      Unlock(const std::string var): var(var) {}
-
-      void accept(Visitor* v) const override
-      {
-        v->visitUnlock(this);
-      }
-    };
-
-    struct AssertionFailure : Node
-    {
-      const std::string cond;
-
-      AssertionFailure(const std::string &cond): cond(cond) {}
-
-      void accept(Visitor* v) const override
-      {
-        v->visitAssertionFailure(this);
-      }
-    };
-
-    struct Pending : Node
-    {
-      const std::string statement;
-
-      Pending(const std::string statement): statement(statement) {}
-      void accept(Visitor* v) const override
-      {
-        v->visitPending(this);
-      }
-    };
+  void set_source(const std::shared_ptr<const Node> source) {
+    if (std::holds_alternative<SuccessfulRead>(read_result)) {
+      std::get<SuccessfulRead>(read_result).source = source;
+    }
   }
-}
+
+  void accept(Visitor *v) const override { v->visitRead(this); }
+};
+
+struct Spawn : Node {
+  const size_t tid;
+  const std::shared_ptr<const Node> spawned;
+
+  Spawn(const size_t tid, const std::shared_ptr<const Node> spawned)
+      : tid(tid), spawned(spawned) {}
+
+  void accept(Visitor *v) const override { v->visitSpawn(this); }
+};
+
+struct Join : Node {
+  const size_t tid;
+  const std::shared_ptr<const Node> joinee;
+  const std::optional<Conflict> conflict;
+
+  Join(const size_t tid, const std::shared_ptr<const Node> joinee,
+       std::optional<Conflict> conflict = std::nullopt)
+      : tid(tid), joinee(joinee), conflict(conflict) {}
+
+  void accept(Visitor *v) const override { v->visitJoin(this); }
+};
+
+struct Lock : Node {
+  const std::string var;
+  const std::shared_ptr<const Node> ordered_after;
+  const std::optional<Conflict> conflict;
+
+  Lock(const std::string var, const std::shared_ptr<const Node> ordered_after,
+       std::optional<Conflict> conflict = std::nullopt)
+      : var(var), ordered_after(ordered_after), conflict(conflict) {}
+
+  void accept(Visitor *v) const override { v->visitLock(this); }
+};
+
+struct Unlock : Node {
+  const std::string var;
+
+  Unlock(const std::string var) : var(var) {}
+
+  void accept(Visitor *v) const override { v->visitUnlock(this); }
+};
+
+struct Assertion : Node {
+  const std::string cond;
+  const bool passed;
+
+  Assertion(const std::string &cond, const bool passed) : cond(cond), passed(passed) {}
+
+  void accept(Visitor *v) const override { v->visitAssertion(this); }
+};
+
+struct Pending : Node {
+  const std::string statement;
+
+  Pending(const std::string statement) : statement(statement) {}
+  void accept(Visitor *v) const override { v->visitPending(this); }
+};
+
+struct ExecutionGraph {
+  std::shared_ptr<const Node> entry;
+  std::vector<std::shared_ptr<graph::Start>> threads;
+
+  ExecutionGraph(std::shared_ptr<const Node> entry) : entry(entry) {}
+
+  ExecutionGraph(const ExecutionGraph&) = delete;
+  ExecutionGraph& operator=(const ExecutionGraph&) = delete;
+
+  ExecutionGraph(ExecutionGraph&&) = default;
+  ExecutionGraph& operator=(ExecutionGraph&&) = default;
+};
+
+} // namespace graph
+} // namespace gitmem

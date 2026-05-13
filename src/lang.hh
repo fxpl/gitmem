@@ -1,59 +1,61 @@
 #pragma once
 #include <trieste/trieste.h>
 
-namespace gitmem
-{
-  using namespace trieste;
+namespace gitmem {
 
-  Reader reader();
+namespace lang {
 
-  // Variables
-  inline const auto Reg = TokenDef("reg", flag::print);
-  inline const auto Var = TokenDef("var", flag::print);
+using namespace trieste;
 
-  // Constants
-  inline const auto Const = TokenDef("const", flag::print);
+Reader reader();
 
-  // Arithmetic
-  inline const auto Add = TokenDef("+");
+// Variables
+inline const auto Reg = TokenDef("reg", flag::print);
+inline const auto Var = TokenDef("var", flag::print);
 
-  // Comparison
-  inline const auto Eq = TokenDef("==");
-  inline const auto Neq = TokenDef("!=");
+// Constants
+inline const auto Const = TokenDef("const", flag::print);
 
-  // Statements
-  inline const auto Semi = TokenDef(";");
-  inline const auto Assign = TokenDef("=", flag::lookup);
-  inline const auto Spawn = TokenDef("spawn");
-  inline const auto Join = TokenDef("join");
-  inline const auto Lock = TokenDef("lock");
-  inline const auto Unlock = TokenDef("unlock");
-  inline const auto Nop = TokenDef("nop");
-  inline const auto Assert = TokenDef("assert");
-  inline const auto If = TokenDef("if");
-  inline const auto Else = TokenDef("else");
+// Arithmetic
+inline const auto Add = TokenDef("+");
 
-  // Branching
-  inline const auto Jump = TokenDef("jump");
-  inline const auto Cond = TokenDef("cond");
+// Comparison
+inline const auto Eq = TokenDef("==");
+inline const auto Neq = TokenDef("!=");
 
-  // Grouping tokens
-  inline const auto Brace = TokenDef("brace");
-  inline const auto Paren = TokenDef("paren");
+// Statements
+inline const auto Semi = TokenDef(";");
+inline const auto Assign = TokenDef("=", flag::lookup);
+inline const auto Spawn = TokenDef("spawn");
+inline const auto Join = TokenDef("join");
+inline const auto Lock = TokenDef("lock");
+inline const auto Unlock = TokenDef("unlock");
+inline const auto Nop = TokenDef("nop");
+inline const auto Assert = TokenDef("assert");
+inline const auto If = TokenDef("if");
+inline const auto Else = TokenDef("else");
 
-  inline const auto Stmt = TokenDef("stmt");
-  inline const auto Expr = TokenDef("expr");
-  inline const auto Block = TokenDef("block", flag::symtab | flag::defbeforeuse);
+// Branching
+inline const auto Jump = TokenDef("jump");
+inline const auto Cond = TokenDef("cond");
 
-  // Convenience
-  inline const auto LVal = TokenDef("lval");
-  inline const auto Lhs = TokenDef("lhs");
-  inline const auto Rhs = TokenDef("rhs");
-  inline const auto Op = TokenDef("op");
-  inline const auto Then = TokenDef("then");
+// Grouping tokens
+inline const auto Brace = TokenDef("brace");
+inline const auto Paren = TokenDef("paren");
 
-  // Well-formedness
-  // clang-format off
+inline const auto Stmt = TokenDef("stmt");
+inline const auto Expr = TokenDef("expr");
+inline const auto Block = TokenDef("block", flag::symtab | flag::defbeforeuse);
+
+// Convenience
+inline const auto LVal = TokenDef("lval");
+inline const auto Lhs = TokenDef("lhs");
+inline const auto Rhs = TokenDef("rhs");
+inline const auto Op = TokenDef("op");
+inline const auto Then = TokenDef("then");
+
+// Well-formedness
+// clang-format off
   inline const wf::Wellformed wf =
     (Top <<= File)
   | (File <<= Block)
@@ -72,6 +74,12 @@ namespace gitmem
   | (Jump <<= Const)
   | (Cond <<= Expr * Const)
   ;
-  // clang-format on
+// clang-format on
 
+} // namespace lang
+
+inline trieste::Node entry_block(const trieste::Node& ast) {
+  return ast / lang::File / lang::Block;
 }
+
+} // namespace gitmem

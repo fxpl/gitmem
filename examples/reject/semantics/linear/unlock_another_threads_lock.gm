@@ -1,0 +1,5 @@
+lock l;
+t = spawn {
+  unlock l;
+};
+join t;

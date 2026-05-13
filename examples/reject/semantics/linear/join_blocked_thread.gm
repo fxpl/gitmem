@@ -1,0 +1,2 @@
+$t2 = spawn { join 0; };
+join $t2;

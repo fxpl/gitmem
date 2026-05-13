@@ -1,0 +1,5 @@
+$t1 = spawn { assert(1 == 2); };
+$t2 = spawn { nop; };
+$t3 = spawn { nop; };
+$t4 = spawn { nop; };
+$t5 = spawn { nop; };

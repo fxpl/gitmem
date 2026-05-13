@@ -1,0 +1,13 @@
+x = 1;
+$t1 = spawn {
+    lock l1;
+    x = 1;
+    unlock l1;
+};
+$t2 = spawn {
+    x = 2;
+};
+join $t2;
+lock l1;
+assert(x == 1);
+unlock l2;

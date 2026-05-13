@@ -1,23 +1,25 @@
 #pragma once
 #include "lang.hh"
 
-namespace gitmem
-{
-  using namespace trieste;
+namespace gitmem {
 
-  Parse parser();
-  PassDef expressions();
-  PassDef statements();
-  PassDef check_refs();
-  PassDef branching();
+namespace lang {
 
-  inline const auto parse_token =
-     Reg | Var | Const | Nop | Brace | Paren |
-     Spawn | Join | Lock | Unlock | Assert | If | Else;
+using namespace trieste;
 
-  inline const auto parse_op = Group | Assign | Eq | Neq | Add | Semi;
+Parse parser();
+PassDef expressions();
+PassDef statements();
+PassDef check_refs();
+PassDef branching();
 
-  // clang-format off
+inline const auto parse_token = Reg | Var | Const | Nop | Brace | Paren |
+                                Spawn | Join | Lock | Unlock | Assert | If |
+                                Else;
+
+inline const auto parse_op = Group | Assign | Eq | Neq | Add | Semi;
+
+// clang-format off
 	inline const wf::Wellformed parser_wf =
 		(Top <<= File)
 		| (File	<<= ~parse_op)
@@ -82,5 +84,8 @@ namespace gitmem
     | (Jump <<= Const)
     | (Cond <<= Expr * Const)
     ;
-  // clang-format on
-}
+// clang-format on
+
+} // namespace lang
+
+} // namespace gitmem
