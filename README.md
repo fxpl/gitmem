@@ -186,11 +186,8 @@ src/
             └── lazy/memory_model.hh  - Lazy branching model
 
 examples/
-    ├── race_condition.gm, tobias.gm, weird_dep.gm
     ├── accept/                 - Passing test inputs
-    ├── reject/                 - Failing test inputs
-    ├── oracle/, key/           - Expected outputs and helpers
-    └── pugh-causality-tests/
+    └── reject/                 - Failing test inputs
 ```
 
 ## Executables
