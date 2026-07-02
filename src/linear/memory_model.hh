@@ -48,6 +48,8 @@ public:
 
   bool is_scheduling_point(SyncOperation op) const override;
 
+  bool uses_global_lock_ordering() const override { return true; }
+
   std::unique_ptr<ThreadSyncState> make_thread_state(ThreadID tid) const override {
     return std::make_unique<LocalVersionStore>(tid);
   }

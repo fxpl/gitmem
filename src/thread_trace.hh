@@ -24,7 +24,7 @@ struct ReadValue { const size_t value; const std::shared_ptr<Event> source_event
 struct ReadEvent { const std::string var; std::variant<const ReadValue, std::shared_ptr<ConflictBase>> value_or_conflict; };
 struct WriteEvent { const std::string var; const size_t value; const FileLocation location; };
 struct LockEvent { std::string lock_name; std::shared_ptr<ConflictBase> maybe_conflict; std::shared_ptr<Event> last_unlock_event; };
-struct UnlockEvent { const std::string lock_name; std::shared_ptr<ConflictBase> maybe_conflict; };
+struct UnlockEvent { const std::string lock_name; std::shared_ptr<ConflictBase> maybe_conflict; std::shared_ptr<Event> g_predecessor = nullptr; };
 struct JoinEvent { const ThreadID joinee_tid; std::shared_ptr<ConflictBase> maybe_conflict; };
 struct AssertEvent { const std::string condition; bool pass; };
 
@@ -173,8 +173,10 @@ private:
     return append<LockEvent>(std::move(lock_name), std::move(conflict), last_unlock_event);
   }
 
-  std::shared_ptr<Event> on_unlock(const std::string lock_name, std::shared_ptr<ConflictBase> conflict = nullptr) {
-    return append<UnlockEvent>(std::move(lock_name), conflict);
+  std::shared_ptr<Event> on_unlock(const std::string lock_name,
+                                   std::shared_ptr<ConflictBase> conflict = nullptr,
+                                   std::shared_ptr<Event> g_predecessor = nullptr) {
+    return append<UnlockEvent>(std::move(lock_name), conflict, g_predecessor);
   }
 
   std::shared_ptr<Event> on_join(ThreadID tid, std::shared_ptr<ConflictBase> conflict = nullptr) {

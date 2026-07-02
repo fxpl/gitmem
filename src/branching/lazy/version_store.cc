@@ -140,7 +140,9 @@ BranchingReadResult LazyLocalVersionStore::get_committed(std::string var) const 
   auto result = BranchingReadResult(Conflict(
     var,
     {a, get_loc(writers[0]->changes.at(var))},
-    {b, get_loc(writers[1]->changes.at(var))}));
+    {b, get_loc(writers[1]->changes.at(var))},
+    writers[0]->changes.at(var).source_event,
+    writers[1]->changes.at(var).source_event));
   read_cache[var] = result;
   return result;
 }

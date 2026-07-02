@@ -2,6 +2,7 @@
 #include "debug.hh"
 #include "thread_trace.hh"
 
+#include <queue>
 #include <unordered_set>
 
 namespace gitmem {
@@ -156,7 +157,9 @@ std::optional<Conflict> EagerLocalVersionStore::merge_with_commit(const std::sha
       conflict = Conflict(
         obj,
         {commit_a->id, get_loc(commit_a, obj)},
-        {it->second->id, get_loc(it->second, obj)});
+        {it->second->id, get_loc(it->second, obj)},
+        commit_a->changes.at(obj).source_event,
+        it->second->changes.at(obj).source_event);
       break;
     }
   }

@@ -97,7 +97,9 @@ std::optional<Conflict> GlobalVersionStore::check_conflicts(
       return Conflict(
           obj,
           {current_timestamp, event_location(local_value)},
-          {latest.timestamp(), event_location(latest.value())});
+          {latest.timestamp(), event_location(latest.value())},
+          local_value.source_event,
+          latest.value().source_event);
     }
   }
   return std::nullopt;

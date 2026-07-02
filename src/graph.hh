@@ -144,8 +144,12 @@ struct Lock : Node {
 
 struct Unlock : Node {
   const std::string var;
+  const std::optional<Conflict> conflict;
+  std::shared_ptr<const Node> g_predecessor;
 
-  Unlock(const std::string var) : var(var) {}
+  Unlock(const std::string var, std::optional<Conflict> conflict = std::nullopt,
+         std::shared_ptr<const Node> g_predecessor = nullptr)
+      : var(var), conflict(conflict), g_predecessor(g_predecessor) {}
 
   void accept(Visitor *v) const override { v->visitUnlock(this); }
 };

@@ -62,6 +62,11 @@ public:
   // (i.e., the scheduler should consider switching threads here)
   virtual bool is_scheduling_point(SyncOperation op) const = 0;
 
+  // Returns true if all unlock events share a single global g-lane (linear
+  // memory model), so that a lock on any variable follows the most recent
+  // unlock on ANY variable rather than just the same one.
+  virtual bool uses_global_lock_ordering() const { return false; }
+
   virtual std::string build_revision_graph_dot(const std::vector<const ThreadSyncState*>& thread_states) const = 0;
 
   virtual std::ostream &print(std::ostream &os) const = 0;

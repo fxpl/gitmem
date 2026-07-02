@@ -72,6 +72,11 @@ private:
 public:
   Lock& get_lock(std::string);
 
+  // Most recent unlock event across ALL lock variables (used by the linear
+  // memory model so that lock(l2) gets an ordered_after edge to the last
+  // unlock(l1) that pushed to g, even though l2 was never unlocked before).
+  std::shared_ptr<Event> last_g_push_event = nullptr;
+
   // AST evaluation cache
   lang::NodeMap<size_t> cache;
 
