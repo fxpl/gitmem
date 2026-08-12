@@ -1,0 +1,9 @@
+// Two volatile writes to @v with no happens-before between them (write->write
+// is not a synchronizes-with edge). The stores are atomic but they still race:
+// the final value is order-dependent. A concurrent write-write on a volatile is
+// a race and must be rejected.
+@v = 0;
+$t = spawn {
+  @v = @v + 1;
+};
+@v = @v + 1;

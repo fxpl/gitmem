@@ -28,4 +28,15 @@ public:
   }
 };
 
+class VolatileSyncState {
+public:
+  virtual ~VolatileSyncState() = default;
+
+  virtual std::ostream &print(std::ostream &os) const = 0;
+  friend std::ostream &operator<<(std::ostream &os,
+                                  const VolatileSyncState &state) {
+    return state.print(os);
+  }
+};
+
 }

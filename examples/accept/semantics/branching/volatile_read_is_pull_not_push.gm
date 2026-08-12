@@ -1,0 +1,26 @@
+// This test demonstrates that volatile reads are pull actions, not push actions.
+// In particular, the read of @v in t2 should not push the changes from t2 to t1,
+// and so the assertion on y should always succeed.
+
+@v = 0;
+x = 0;
+y = 0;
+
+t1 = spawn {
+  x = 1;
+  @v = 1;
+  assert(y == 0);
+};
+
+t2 = spawn {
+  y = 1;
+  if (@v == 1) {
+    assert(x == 1);
+  } else {
+    assert(x == 0);
+  }
+  join t1;
+};
+
+join t1;
+join t2;

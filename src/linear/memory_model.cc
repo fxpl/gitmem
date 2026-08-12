@@ -70,17 +70,13 @@ std::string LinearMemoryModel::build_revision_graph_dot(
 }
 
 std::optional<LinearConflict>
-LinearMemoryModel::push(LocalVersionStore &local) {
+LinearMemoryModel::pullpush(LocalVersionStore &local) {
   if (auto conflict = _global_store.check_conflicts({local.thread(), local.timestamp()},
                                                     local.staged_changes())) {
     return *conflict;
   }
 
-  uint64_t new_base = _global_store.apply_changes(
-      local.thread(), local.timestamp(), local.staged_changes());
-
-  local.clear_staging();
-  local.advance_base(new_base);
+  push(local);
   return std::nullopt;
 }
 
@@ -93,6 +89,14 @@ LinearMemoryModel::pull(LocalVersionStore &local) {
 
   local.advance_base( _global_store.current_counter());
   return std::nullopt;
+}
+
+void LinearMemoryModel::push(LocalVersionStore &local) {
+  uint64_t new_base = _global_store.apply_changes(
+      local.thread(), local.timestamp(), local.staged_changes());
+
+  local.clear_staging();
+  local.advance_base(new_base);
 }
 
 LinearMemoryModel::~LinearMemoryModel() = default;
@@ -123,9 +127,9 @@ void LinearMemoryModel::write(ThreadContext &ctx, const std::string &var,
 
 std::optional<std::shared_ptr<ConflictBase>>
 LinearMemoryModel::on_spawn(ThreadContext &parent, ThreadContext &child) {
-  // push parent to global history
+  // pullpush parent to global history
   auto& store = get_store(parent);
-  if (auto conflict = push(store))
+  if (auto conflict = pullpush(store))
     return std::make_shared<LinearConflict>(std::move(*conflict));
 
   // pull into the child
@@ -139,7 +143,7 @@ LinearMemoryModel::on_spawn(ThreadContext &parent, ThreadContext &child) {
 
 std::optional<std::shared_ptr<ConflictBase>>
 LinearMemoryModel::on_join(ThreadContext &joiner, ThreadContext &joinee) {
-  // we assume the joinee has already terminated and pushed
+  // we assume the joinee has already terminated and pullpushed
 
   // pull changes into parent
   auto& store = get_store(joiner);
@@ -161,9 +165,9 @@ LinearMemoryModel::on_start(ThreadContext &thread) {
 
 std::optional<std::shared_ptr<ConflictBase>>
 LinearMemoryModel::on_end(ThreadContext &thread) {
-  // push changes to global history
+  // pullpush changes to global history
   auto& store = get_store(thread);
-  if (auto conflict = push(store))
+  if (auto conflict = pullpush(store))
     return std::make_shared<LinearConflict>(std::move(*conflict));
 
   return std::nullopt;
@@ -181,10 +185,40 @@ LinearMemoryModel::on_lock(ThreadContext &thread, Lock &lock) {
 
 std::optional<std::shared_ptr<ConflictBase>>
 LinearMemoryModel::on_unlock(ThreadContext &thread, Lock &) {
-  // push changes to global history
+  // pullpush changes to global history
   auto& store = get_store(thread);
-  if (auto conflict = push(store))
+  if (auto conflict = pullpush(store))
     return std::make_shared<LinearConflict>(std::move(*conflict));
+
+  return std::nullopt;
+}
+
+std::optional<std::shared_ptr<ConflictBase>>
+LinearMemoryModel::on_volatile_read(ThreadContext &thread, Volatile &v) {
+  auto& store = get_store(thread);
+  if (auto conflict = pull(store))
+    return std::make_shared<LinearConflict>(std::move(*conflict));
+
+  return std::nullopt;
+}
+
+std::optional<std::shared_ptr<ConflictBase>>
+LinearMemoryModel::on_volatile_write(ThreadContext &thread, Volatile &v,
+                                     ValueWithSource value) {
+  auto& store = get_store(thread);
+
+  // Version @v in g, in addition to the atomic value on the object. Then
+  // publish, checking for conflicts at the current base: a concurrent write to
+  // @v -- one not happens-before ours -- is caught here as a write-write race
+  // (write->write is not a synchronizes-with edge, only write->read is). We
+  // must NOT pull first: that would absorb the concurrent write and hide it.
+  store.stage(v.name, value);
+  if (auto conflict = pullpush(store))
+    return std::make_shared<LinearConflict>(std::move(*conflict));
+
+  // The single current value (with provenance) lives on the object; the g
+  // version exists only to detect the race.
+  v.value = value;
 
   return std::nullopt;
 }
@@ -196,7 +230,9 @@ bool LinearMemoryModel::is_scheduling_point(SyncOperation op) const {
     case SyncOperation::Join:
     case SyncOperation::Spawn:
     case SyncOperation::Start:
-    case SyncOperation::End:      return true;  }
+    case SyncOperation::End:
+    case SyncOperation::VolatileRead:
+    case SyncOperation::VolatileWrite: return true;  }
   assert(false && "Unknown SyncOperation");
 }
 

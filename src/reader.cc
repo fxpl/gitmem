@@ -13,6 +13,7 @@ Reader reader() {
           expressions(),
           statements(),
           check_refs(),
+          hoist_volatiles(),
           branching(),
       },
       gitmem::lang::parser(),

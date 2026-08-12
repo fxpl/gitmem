@@ -62,12 +62,13 @@ void GraphvizPrinter::emitConflict(const Node *n, const Conflict &conflict) {
   emitFillColor(n, "red");
   // emitShape(n, "doubleoctagon");
 
-  // Only draw conflict edges if we have actual source nodes
+  // Only draw conflict edges to actual *other* source nodes (a racing write is
+  // often one of the two sources itself; don't draw a self-loop).
   auto [s1, s2] = conflict.sources;
-  if (s1) {
+  if (s1 && s1.get() != n) {
     emitConflictEdge(n, s1.get());
   }
-  if (s2) {
+  if (s2 && s2.get() != n) {
     emitConflictEdge(n, s2.get());
   }
 }
@@ -133,6 +134,45 @@ void GraphvizPrinter::visitRead(const Read *n) {
     auto& success = std::get<Read::SuccessfulRead>(n->read_result);
     if (success.source) {
       emitReadFromEdge(n, success.source.get());
+    }
+  }
+}
+
+void GraphvizPrinter::visitVolatileWrite(const VolatileWrite *n) {
+  emitNode(n, "W" + n->var + " = " + to_string(n->value));
+  emitProgramOrderEdge(n, n->next.get());
+  visitProgramOrder(n->next.get());
+  // write->write synchronisation order (release chain).
+  if (n->sync_predecessor)
+    emitSyncEdge(n->sync_predecessor.get(), n);
+  // A concurrent write-write race renders the node as an error.
+  if (n->conflict)
+    emitConflict(n, n->conflict.value());
+}
+
+void GraphvizPrinter::visitVolatileRead(const VolatileRead *n) {
+  std::string label = "R" + n->var + " = ";
+
+  std::visit(overloaded{
+    [&](const Read::SuccessfulRead& success) {
+      label += to_string(success.value);
+    },
+    [&](const Conflict& conflict) {
+      label += "conflict";
+    }
+  }, n->read_result);
+
+  emitNode(n, label);
+  emitProgramOrderEdge(n, n->next.get());
+  visitProgramOrder(n->next.get());
+
+  if (auto* conflict = std::get_if<Conflict>(&n->read_result)) {
+    emitConflict(n, *conflict);
+  } else {
+    auto& success = std::get<Read::SuccessfulRead>(n->read_result);
+    // write->read is an acquire: a synchronisation edge, not a reads-from edge.
+    if (success.source) {
+      emitSyncEdge(success.source.get(), n);
     }
   }
 }

@@ -7,7 +7,7 @@ namespace lang {
 using namespace trieste;
 
 PassDef statements() {
-  auto RVal = T(Expr) << (T(Reg, Var, Add, Const, Spawn));
+  auto RVal = T(Expr) << (T(Reg, Var, Volatile, Add, Const, Spawn));
   auto Condition = T(Expr) << (T(Eq, Neq));
   return {
       "statements",
@@ -34,7 +34,7 @@ PassDef statements() {
           --In(Stmt) * T(Unlock) << ((T(Expr) << T(Var)[Var]) * End) >>
               [](Match &_) -> Node { return Stmt << (Unlock << _(Var)); },
 
-          --In(Stmt) * T(Assign) << ((T(Expr) << (T(Reg, Var)[LVal] * End)) *
+          --In(Stmt) * T(Assign) << ((T(Expr) << (T(Reg, Var, Volatile)[LVal] * End)) *
                                      RVal[Expr] * End) >>
               [](Match &_) -> Node {
             return Stmt << (Assign << _(LVal) << _(Expr));
@@ -110,7 +110,7 @@ PassDef statements() {
                              "Expected right-hand side to assignment");
           },
 
-          --In(Stmt) * T(Assign) << ((T(Expr) << T(Reg, Var)) * Any[Expr]) >>
+          --In(Stmt) * T(Assign) << ((T(Expr) << T(Reg, Var, Volatile)) * Any[Expr]) >>
               [](Match &_) -> Node {
             return Error << (ErrorAst << _(Expr))
                          << (ErrorMsg ^

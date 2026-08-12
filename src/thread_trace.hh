@@ -23,8 +23,10 @@ struct SpawnEvent { const ThreadID child_tid; };
 struct ReadValue { const size_t value; const std::shared_ptr<Event> source_event; };
 struct ReadEvent { const std::string var; std::variant<const ReadValue, std::shared_ptr<ConflictBase>> value_or_conflict; };
 struct WriteEvent { const std::string var; const size_t value; const FileLocation location; };
+struct VolatileReadEvent { const std::string var; std::variant<const ReadValue, std::shared_ptr<ConflictBase>> value_or_conflict; };
+struct VolatileWriteEvent { const std::string var; const size_t value; const FileLocation location; std::shared_ptr<ConflictBase> maybe_conflict = nullptr; std::shared_ptr<Event> sync_predecessor = nullptr; };
 struct LockEvent { std::string lock_name; std::shared_ptr<ConflictBase> maybe_conflict; std::shared_ptr<Event> last_unlock_event; };
-struct UnlockEvent { const std::string lock_name; std::shared_ptr<ConflictBase> maybe_conflict; };
+struct UnlockEvent { const std::string lock_name; std::shared_ptr<ConflictBase> maybe_conflict; std::shared_ptr<Event> g_predecessor = nullptr; };
 struct JoinEvent { const ThreadID joinee_tid; std::shared_ptr<ConflictBase> maybe_conflict; };
 struct AssertEvent { const std::string condition; bool pass; };
 
@@ -40,6 +42,8 @@ struct Event {
     SpawnEvent,
     ReadEvent,
     WriteEvent,
+    VolatileReadEvent,
+    VolatileWriteEvent,
     LockEvent,
     UnlockEvent,
     JoinEvent,
@@ -76,6 +80,24 @@ inline std::ostream& operator<<(std::ostream& os, const ReadEvent& e) {
 inline std::ostream& operator<<(std::ostream& os, const WriteEvent& e) {
   os << "WriteEvent(var=\"" << e.var << "\", value=" << e.value;
   os << ", at " << e.location.linecol();
+  return os << ")";
+}
+
+inline std::ostream& operator<<(std::ostream& os, const VolatileReadEvent& e) {
+  os << "VolatileReadEvent(var=\"" << e.var << "\", ";
+  std::visit(overloaded{
+    [&os](const ReadValue& val) { os << "value=" << val.value << " (from " << val.source_event->eid << ")"; },
+    [&os](const std::shared_ptr<ConflictBase>&) { os << "conflict"; }
+  }, e.value_or_conflict);
+  os << ")";
+  return os;
+}
+
+inline std::ostream& operator<<(std::ostream& os, const VolatileWriteEvent& e) {
+  os << "VolatileWriteEvent(var=\"" << e.var << "\", value=" << e.value;
+  os << ", at " << e.location.linecol();
+  if (e.maybe_conflict)
+    os << ", conflict";
   return os << ")";
 }
 
@@ -167,14 +189,39 @@ private:
     return append<WriteEvent>(std::move(text), value, std::move(location));
   }
 
+  std::shared_ptr<Event> on_volatile_read(const std::string text, ValueWithSource value) {
+    return append<VolatileReadEvent>(std::move(text), ReadValue{value.value, value.source_event});
+  }
+
+  std::shared_ptr<Event> on_volatile_read(const std::string text, std::shared_ptr<ConflictBase> conflict) {
+    return append<VolatileReadEvent>(std::move(text), conflict);
+  }
+
+
+  std::shared_ptr<Event> on_volatile_write(const std::string text, const size_t value,
+                                           FileLocation location,
+                                           std::shared_ptr<Event> sync_predecessor = nullptr) {
+    return append<VolatileWriteEvent>(std::move(text), value, std::move(location),
+                                      nullptr, std::move(sync_predecessor));
+  }
+
+  // The volatile-write event is the value's provenance, so it is created before
+  // the model checks the release; attach a conflict here if the release raced.
+  void on_volatile_write_conflict(const std::shared_ptr<Event>& event,
+                                  std::shared_ptr<ConflictBase> conflict) {
+    std::get<VolatileWriteEvent>(event->data).maybe_conflict = std::move(conflict);
+  }
+
   std::shared_ptr<Event> on_lock(const std::string lock_name,
                                  std::shared_ptr<Event> last_unlock_event,
                                  std::shared_ptr<ConflictBase> conflict = nullptr) {
     return append<LockEvent>(std::move(lock_name), std::move(conflict), last_unlock_event);
   }
 
-  std::shared_ptr<Event> on_unlock(const std::string lock_name, std::shared_ptr<ConflictBase> conflict = nullptr) {
-    return append<UnlockEvent>(std::move(lock_name), conflict);
+  std::shared_ptr<Event> on_unlock(const std::string lock_name,
+                                   std::shared_ptr<ConflictBase> conflict = nullptr,
+                                   std::shared_ptr<Event> g_predecessor = nullptr) {
+    return append<UnlockEvent>(std::move(lock_name), conflict, g_predecessor);
   }
 
   std::shared_ptr<Event> on_join(ThreadID tid, std::shared_ptr<ConflictBase> conflict = nullptr) {

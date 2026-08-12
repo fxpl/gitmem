@@ -90,6 +90,7 @@ Parse parser() {
 
         // Variables
         R"(\$[_[:alpha:]][_[:alnum:]]*)" >> [](auto &m) { m.add(Reg); },
+        R"(\@[_[:alpha:]][_[:alnum:]]*)" >> [](auto &m) { m.add(Volatile); },
         R"([_[:alpha:]][_[:alnum:]]*)" >> [](auto &m) { m.add(Var); },
 
         // Grouping

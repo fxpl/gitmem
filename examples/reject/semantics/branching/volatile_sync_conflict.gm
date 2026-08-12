@@ -1,0 +1,10 @@
+// The two volatile writes to @v are concurrent with no happens-before between
+// them (write->write is not a synchronizes-with edge, only write->read is), so
+// they race -- and so do the piggybacked x writes. All models detect it.
+
+$t = spawn {
+  x = 1;
+  @v = 1;
+};
+x = 2;
+@v = 2;

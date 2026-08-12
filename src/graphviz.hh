@@ -8,6 +8,8 @@ struct GraphvizPrinter : Visitor {
   void visitEnd(const End *) override;
   void visitWrite(const Write *) override;
   void visitRead(const Read *) override;
+  void visitVolatileWrite(const VolatileWrite *) override;
+  void visitVolatileRead(const VolatileRead *) override;
   void visitSpawn(const Spawn *) override;
   void visitJoin(const Join *) override;
   void visitLock(const Lock *) override;

@@ -1,0 +1,5 @@
+@v = 2;
+$t = spawn {
+  assert(@v == 2);
+};
+assert(@v == 2);

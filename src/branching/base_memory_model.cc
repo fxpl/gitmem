@@ -1,5 +1,6 @@
 #include "base_memory_model.hh"
 #include "overloaded.hh"
+#include <stdexcept>
 #include "branching/eager/memory_model.hh"
 #include "branching/lazy/memory_model.hh"
 
@@ -120,6 +121,71 @@ BranchingMemoryModelBase::on_unlock(ThreadContext &thread, Lock &lock) {
   return std::nullopt;
 }
 
+VolatileState& get_store(Volatile& v) {
+  return static_cast<VolatileState&>(*v.sync);
+}
+
+std::optional<std::shared_ptr<ConflictBase>>
+BranchingMemoryModelBase::on_volatile_read(ThreadContext &thread, Volatile &v) {
+  auto& store = get_store(thread);
+  store.commit_staging();
+
+  // Acquire: merge the current release so we observe it and everything that
+  // happened-before it -- this launders that write into happens-before for our
+  // own later writes. A read never stages @v, so it never races. May conflict
+  // on piggybacked non-volatile state.
+  VolatileState& vstate = get_store(v);
+  if (vstate.commit != nullptr) {
+    if (std::optional<Conflict> conflict = store.merge_with_commit(vstate.commit)) {
+      return std::make_shared<BranchingConflict>(*conflict);
+    }
+  }
+
+  // The value (with its writer as provenance) lives on the Volatile object and
+  // is read there by the interpreter.
+  return std::nullopt;
+}
+
+std::optional<std::shared_ptr<ConflictBase>>
+BranchingMemoryModelBase::on_volatile_write(ThreadContext &thread, Volatile &v,
+                                            ValueWithSource value) {
+  auto& store = get_store(thread);
+
+  // Version @v in the DAG, in addition to the atomic value we keep on the
+  // object. Two volatile writes with no happens-before between them race
+  // (write->write is not a synchronizes-with edge, only write->read is) --
+  // even though each store is atomic. Staging @v makes such a concurrent write
+  // land in a divergent branch, so the merge below reports it as a conflict.
+  write(thread, v.name, value);
+  store.commit_staging();
+
+  // Merge the previous release. If a concurrent writer's @v sits in a divergent
+  // branch this reports the write-write race; it also catches piggybacked
+  // non-volatile races.
+  VolatileState& vstate = get_store(v);
+  if (vstate.commit != nullptr) {
+    if (std::optional<Conflict> conflict = store.merge_with_commit(vstate.commit)) {
+      return std::make_shared<BranchingConflict>(*conflict);
+    }
+  }
+
+  // Lazy defers merge-conflict detection to read time, and a volatile read
+  // observes the object rather than the store -- so the deferred write-write
+  // race would never surface. Probe @v in the store here to force it. (Eager
+  // already reported any conflict at the merge above, so this is a no-op there.)
+  auto probe = store.read(v.name);
+  if (auto* conflict = std::get_if<Conflict>(&probe))
+    return std::make_shared<BranchingConflict>(*conflict);
+
+  // Record the new release. The atomic value (with provenance) lives on the
+  // object -- that single current value is what reads observe; the DAG version
+  // exists only to detect the race.
+  vstate.commit = store.get_head();
+  v.value = value;
+
+  return std::nullopt;
+}
+
 std::string BranchingMemoryModelBase::build_revision_graph_dot(
     const std::vector<const ThreadSyncState*>& thread_states) const {
 
@@ -142,6 +208,8 @@ bool BranchingMemoryModelBase::is_scheduling_point(SyncOperation op) const {
     case SyncOperation::Lock:
     case SyncOperation::Unlock:
     case SyncOperation::Join:
+    case SyncOperation::VolatileRead:
+    case SyncOperation::VolatileWrite:
       return true;
     case SyncOperation::Spawn:
     case SyncOperation::Start:

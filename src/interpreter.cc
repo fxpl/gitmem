@@ -8,6 +8,7 @@
 #include "interpreter.hh"
 #include "memory_model.hh"
 #include "overloaded.hh"
+#include "render.hh"
 
 namespace gitmem {
 
@@ -27,6 +28,19 @@ using namespace trieste;
  * - t unlocking a lock l, which updates l to have t's versioned memory
  */
 
+// Does this subtree evaluate a volatile read? A volatile read (a Volatile node
+// in read position) can appear anywhere in an evaluated expression -- an
+// assignment RHS, an if/assert condition, inside arithmetic or a comparison.
+// We do not descend into a Spawn body: those statements run in the child thread
+// later, not as part of this statement.
+static bool evaluates_volatile_read(Node n) {
+  if (n == lang::Spawn) return false;
+  if (n == lang::Volatile) return true;
+  for (const auto& child : *n)
+    if (evaluates_volatile_read(child)) return true;
+  return false;
+}
+
 // Map AST node types to sync operations
 static std::optional<SyncOperation> get_sync_operation(Node stmt) {
   auto s = stmt / lang::Stmt;
@@ -37,9 +51,19 @@ static std::optional<SyncOperation> get_sync_operation(Node stmt) {
   // Spawn is an expression, not a statement, but we check for assignment of spawn
   if (s == lang::Assign) {
     // A little gross but okay for now
-    auto rhs = s / lang::Expr / lang::Expr;
-    if (rhs == lang::Spawn) return SyncOperation::Spawn;
+
+    // `@v = ...` writes a volatile (the LVal is a Volatile).
+    if ((s / lang::LVal) == lang::Volatile) return SyncOperation::VolatileWrite;
+
+    // `... = spawn { ... }` spawns a thread.
+    if ((s / lang::Expr / lang::Expr) == lang::Spawn) return SyncOperation::Spawn;
   }
+
+  // A volatile read is an acquire wherever it is evaluated, not just as a bare
+  // `r = @v`. Statements execute atomically here, so the scheduling point is the
+  // statement boundary regardless of where in the expression the read sits --
+  // "when the read happens" collapses to "this statement does a read".
+  if (evaluates_volatile_read(s)) return SyncOperation::VolatileRead;
 
   return std::nullopt;
 }
@@ -99,7 +123,7 @@ std::optional<std::string> Interpreter::pending_statement(ThreadID tid) const {
     return std::nullopt;
   }
 
-  return std::string(thread.block->at(thread.pc)->location().view());
+  return lang::render(thread.block->at(thread.pc));
 }
 
 bool Interpreter::same_state_as(const GlobalContext& other) const {
@@ -120,14 +144,36 @@ Interpreter::evaluate_expression(trieste::Node expr, Thread& thread) {
   auto e = expr / lang::Expr;
   if (e == lang::Reg) {
     // It is invalid to read a previously unwritten value
-    auto var = std::string(expr->location().view());
+    auto var = std::string(e->location().view());
     if (ctx.locals.contains(var)) {
       return ctx.locals[var];
     } else {
       return termination::UnassignedRead(var);
     }
+  } else if (e == lang::Volatile) {
+    auto var = std::string(e->location().view());
+
+    // A volatile read is an acquire: synchronize (the model merges/pulls the
+    // writer's ordinary state, and may race on that piggybacked non-volatile
+    // state, exactly like a lock). The volatile's own value lives on the
+    // object, so we read it directly rather than from the versioned store.
+    Volatile& vol = gctx.get_volatile(var);
+    if (auto conflict = gctx.model->on_volatile_read(ctx, vol)) {
+      verbose::out << (**conflict) << std::endl;
+      thread.trace.on_volatile_read(var, *conflict);
+      return termination::DataRace(*conflict);
+    }
+
+    if (!vol.value)
+      // invalid: reading a volatile that hasn't been written
+      return termination::UnassignedRead(var);
+
+    // vol.value->source_event is the writer we synchronized with
+    thread.trace.on_volatile_read(var, *vol.value);
+    return vol.value->value;
+
   } else if (e == lang::Var) {
-    auto var = std::string(expr->location().view());
+    auto var = std::string(e->location().view());
 
     auto result = gctx.model->read(ctx, var);
 
@@ -239,12 +285,38 @@ std::variant<int, TerminationStatus> Interpreter::run_statement(Node stmt, Threa
                 << std::endl;
         ctx.locals[var] = *val;
 
+      } else if (lhs == lang::Volatile) {
+
+        auto [line, col] = stmt->location().linecol();
+        FileLocation loc{stmt->location().source->origin(), line + 1, col + 1};
+
+        Volatile& vol = gctx.get_volatile(var);
+
+        // The prior volatile write (current release) this one chains onto, for
+        // the write->write sync edge. Captured before the model overwrites it.
+        std::shared_ptr<Event> sync_pred =
+            vol.value ? vol.value->source_event : nullptr;
+
+        // The write event is the value's provenance -- a later volatile read
+        // follows it as the acquire->release edge -- so it must exist before
+        // the model stages. The release may still race (on non-volatile
+        // state), in which case we annotate the event we already recorded.
+        auto write_event =
+            thread.trace.on_volatile_write(var, *val, std::move(loc), sync_pred);
+
+        if (auto conflict = gctx.model->on_volatile_write(ctx, vol, ValueWithSource{*val, write_event})) {
+          verbose::out << (**conflict) << std::endl;
+          thread.trace.on_volatile_write_conflict(write_event, *conflict);
+          return termination::DataRace(*conflict);
+        }
+
       } else if (lhs == lang::Var) {
 
         auto [line, col] = stmt->location().linecol();
         FileLocation loc{stmt->location().source->origin(), line + 1, col + 1};
         auto write_event = thread.trace.on_write(var, *val, std::move(loc));
         gctx.model->write(ctx, var, ValueWithSource{*val, write_event});
+
       } else {
         throw std::runtime_error("Bad left-hand side: " +
                                  std::string(lhs->type().str()));
@@ -306,13 +378,20 @@ std::variant<int, TerminationStatus> Interpreter::run_statement(Node stmt, Threa
 
     lock.owner = thread.tid;
 
+    // In the linear model all unlocks push to the same g, so a lock on any
+    // variable follows the most recent unlock of ANY variable (not just this
+    // one).  Use the global g-push predecessor when the per-lock one is absent.
+    auto lock_predecessor = (gctx.model->uses_global_lock_ordering()
+                             && !lock.last_unlock_event)
+        ? gctx.last_g_push_event : lock.last_unlock_event;
+
     if (auto conflict = gctx.model->on_lock(ctx, lock)) {
       verbose::out << (**conflict) << std::endl;
-      thread.trace.on_lock(var, lock.last_unlock_event, *conflict);
+      thread.trace.on_lock(var, lock_predecessor, *conflict);
       return termination::DataRace(*conflict);
     }
 
-    thread.trace.on_lock(var, lock.last_unlock_event);
+    thread.trace.on_lock(var, lock_predecessor);
     verbose::out << "Locked " << var << std::endl;
 
   } else if (s == lang::Unlock) {
@@ -332,7 +411,9 @@ std::variant<int, TerminationStatus> Interpreter::run_statement(Node stmt, Threa
 
     if (auto conflict = gctx.model->on_unlock(ctx, lock)) {
       verbose::out << (**conflict) << std::endl;
-      thread.trace.on_unlock(var, *conflict);
+      auto g_pred = gctx.model->uses_global_lock_ordering()
+                    ? gctx.last_g_push_event : nullptr;
+      thread.trace.on_unlock(var, *conflict, g_pred);
       return termination::DataRace(*conflict);
     }
 
@@ -340,6 +421,7 @@ std::variant<int, TerminationStatus> Interpreter::run_statement(Node stmt, Threa
     lock.owner.reset();
 
     lock.last_unlock_event = thread.trace.on_unlock(var);
+    gctx.last_g_push_event = lock.last_unlock_event;
 
     verbose::out << "Unlocked " << var << std::endl;
 
@@ -627,8 +709,29 @@ graph::ExecutionGraph Interpreter::build_execution_graph_from_traces() {
   // Track join nodes that need fixing up after all threads are processed
   std::vector<std::shared_ptr<graph::Join>> joins_to_fix;
 
+  // Track join conflict source fixups: (join node, conflict base carrying source events)
+  std::vector<std::pair<std::shared_ptr<graph::Join>, std::shared_ptr<ConflictBase>>> join_conflict_fixups;
+
   // Track read nodes that need their source fixed up
   std::vector<std::pair<std::shared_ptr<graph::Read>, std::shared_ptr<Event>>> reads_to_fix;
+
+  // Track lock nodes whose ordered_after must be resolved after all threads
+  // are processed (the predecessor may come from another thread's trace).
+  std::vector<std::pair<std::shared_ptr<graph::Lock>, std::shared_ptr<Event>>> locks_ordered_after_fixups;
+
+  // Track volatile write nodes whose sync_predecessor (the prior volatile
+  // write) must be resolved after all threads -- it may be another thread's.
+  std::vector<std::pair<std::shared_ptr<graph::VolatileWrite>, std::shared_ptr<Event>>> volatile_write_sync_fixups;
+
+  // Track conflicting volatile write nodes: (node, conflict base carrying the
+  // racing source events).
+  std::vector<std::pair<std::shared_ptr<graph::VolatileWrite>, std::shared_ptr<ConflictBase>>> volatile_write_conflict_fixups;
+
+  // Track conflicting unlock nodes whose g_predecessor must be resolved after all threads.
+  std::vector<std::pair<std::shared_ptr<graph::Unlock>, std::shared_ptr<Event>>> unlocks_g_predecessor_fixups;
+
+  // Track unlock conflict source fixups: (unlock node, conflict base carrying source events)
+  std::vector<std::pair<std::shared_ptr<graph::Unlock>, std::shared_ptr<ConflictBase>>> unlock_conflict_fixups;
 
   // Map from trace events to graph nodes
   std::unordered_map<std::shared_ptr<Event>, std::shared_ptr<graph::Node>> event_to_node;
@@ -655,6 +758,10 @@ graph::ExecutionGraph Interpreter::build_execution_graph_from_traces() {
     thread_tails[tid] = node;
   };
 
+  // Track whether each thread's trace already included an EndEvent (e.g. for
+  // stuck threads that had on_end() called on them in Interpreter::run()).
+  std::vector<bool> thread_has_end(gctx.threads.size(), false);
+
   // Process events from all threads
   for (ThreadID tid = 0; tid < gctx.threads.size(); ++tid) {
     auto& thread = gctx.threads[tid];
@@ -674,6 +781,7 @@ graph::ExecutionGraph Interpreter::build_execution_graph_from_traces() {
           auto node = std::make_shared<graph::End>();
           link_in_program_order(tid, node);
           event_to_node[event] = node;
+          thread_has_end[tid] = true;
         },
         [&](const WriteEvent& arg) {
           auto node = std::make_shared<graph::Write>(arg.var, arg.value, tid);
@@ -698,6 +806,36 @@ graph::ExecutionGraph Interpreter::build_execution_graph_from_traces() {
           link_in_program_order(tid, node);
           event_to_node[event] = node;
         },
+        [&](const VolatileWriteEvent& arg) {
+          auto node = std::make_shared<graph::VolatileWrite>(arg.var, arg.value, tid);
+          // write->write sync order: link to the prior volatile write (release).
+          if (arg.sync_predecessor)
+            volatile_write_sync_fixups.push_back({node, arg.sync_predecessor});
+          // A volatile write can race (write-write); render it as an error.
+          if (arg.maybe_conflict) {
+            node->conflict = graph::Conflict(arg.maybe_conflict->object_name());
+            volatile_write_conflict_fixups.push_back({node, arg.maybe_conflict});
+          }
+          link_in_program_order(tid, node);
+          event_to_node[event] = node;
+        },
+        [&](const VolatileReadEvent& arg) {
+          std::shared_ptr<graph::Read> node;
+          std::visit(overloaded{
+            [&](const ReadValue& val) {
+              // The source is rendered as a write->read sync (acquire) edge.
+              node = std::make_shared<graph::VolatileRead>(arg.var, val.value, tid, nullptr);
+              assert(val.source_event && "source missing");
+              reads_to_fix.push_back({node, val.source_event});
+            },
+            [&](const std::shared_ptr<ConflictBase>&) {
+              node = std::make_shared<graph::VolatileRead>(arg.var, tid, graph::Conflict(arg.var));
+            }
+          }, arg.value_or_conflict);
+
+          link_in_program_order(tid, node);
+          event_to_node[event] = node;
+        },
         [&](const SpawnEvent& arg) {
           // Link to the child thread's start node
           auto node = std::make_shared<graph::Spawn>(arg.child_tid, g.threads[arg.child_tid]);
@@ -705,43 +843,46 @@ graph::ExecutionGraph Interpreter::build_execution_graph_from_traces() {
           event_to_node[event] = node;
         },
         [&](const JoinEvent& arg) {
-          // Create join node - will fix up joinee pointer later
+          // Create join node - will fix up joinee pointer and conflict sources later
           std::optional<graph::Conflict> conflict;
           if (arg.maybe_conflict) {
-            // Just mark as conflicting - version IDs don't map directly to nodes
-            conflict = graph::Conflict("");  // empty var name for joins
+            conflict = graph::Conflict(arg.maybe_conflict->object_name());
           }
           auto node = std::make_shared<graph::Join>(arg.joinee_tid, nullptr, conflict);
           joins_to_fix.push_back(node);
+          if (arg.maybe_conflict)
+            join_conflict_fixups.push_back({node, arg.maybe_conflict});
           link_in_program_order(tid, node);
           event_to_node[event] = node;
         },
         [&](const LockEvent& arg) {
-          // Link to the last unlock event using the event-to-node mapping
-          std::shared_ptr<graph::Node> ordered_after = nullptr;
-          if (arg.last_unlock_event && event_to_node.contains(arg.last_unlock_event)) {
-            ordered_after = event_to_node[arg.last_unlock_event];
-          }
-
           std::optional<graph::Conflict> conflict;
           if (arg.maybe_conflict) {
-            // Mark as conflicting with the lock name
             conflict = graph::Conflict(arg.lock_name);
           }
-          auto node = std::make_shared<graph::Lock>(arg.lock_name, ordered_after, conflict);
+          // ordered_after may reference another thread's unlock; defer resolution.
+          auto node = std::make_shared<graph::Lock>(arg.lock_name, nullptr, conflict);
+          if (arg.last_unlock_event) {
+            locks_ordered_after_fixups.push_back({node, arg.last_unlock_event});
+          }
           link_in_program_order(tid, node);
           event_to_node[event] = node;
         },
         [&](const UnlockEvent& arg) {
-          auto node = std::make_shared<graph::Unlock>(arg.lock_name);
+          std::optional<graph::Conflict> unlock_conflict;
+          if (arg.maybe_conflict) {
+            unlock_conflict = graph::Conflict(arg.maybe_conflict->object_name());
+          }
+          auto node = std::make_shared<graph::Unlock>(arg.lock_name, unlock_conflict);
+          if (arg.g_predecessor) {
+            unlocks_g_predecessor_fixups.push_back({node, arg.g_predecessor});
+          }
+          if (arg.maybe_conflict) {
+            unlock_conflict_fixups.push_back({node, arg.maybe_conflict});
+          }
           last_unlock_per_lock[arg.lock_name] = node;
           link_in_program_order(tid, node);
           event_to_node[event] = node;
-
-          // Mark conflict if present
-          if (arg.maybe_conflict) {
-            // TODO: Visualize unlock conflicts
-          }
         },
         [&](const AssertEvent& arg) {
           auto node = std::make_shared<graph::Assertion>(arg.condition, arg.pass);
@@ -751,12 +892,13 @@ graph::ExecutionGraph Interpreter::build_execution_graph_from_traces() {
       }, event->data);
     }
 
-    // Add pending node if thread hasn't terminated
-    if (!thread.terminated) {
+    // Add pending node if thread hasn't terminated and didn't already receive
+    // an EndEvent (which run() adds for stuck threads via on_end()).
+    if (!thread.terminated && !thread_has_end[tid]) {
       if (thread.pc < thread.block->size()) {
         // Thread is stuck waiting at a specific statement
         trieste::Node stmt = thread.block->at(thread.pc);
-        auto pending = std::make_shared<graph::Pending>(std::string(stmt->location().view()));
+        auto pending = std::make_shared<graph::Pending>(lang::render(stmt));
         link_in_program_order(tid, pending);
       } else {
         // Thread has finished all statements but hasn't terminated yet
@@ -766,11 +908,63 @@ graph::ExecutionGraph Interpreter::build_execution_graph_from_traces() {
     }
   }
 
+  // Fix up lock ordered_after edges (predecessor may be in another thread's trace)
+  for (auto& [lock_node, unlock_event] : locks_ordered_after_fixups) {
+    if (event_to_node.contains(unlock_event)) {
+      const_cast<std::shared_ptr<const graph::Node>&>(lock_node->ordered_after) =
+          event_to_node[unlock_event];
+    }
+  }
+
+  // Fix up volatile write->write sync edges (predecessor may be in another thread).
+  for (auto& [vwrite_node, pred_event] : volatile_write_sync_fixups) {
+    if (event_to_node.contains(pred_event)) {
+      vwrite_node->sync_predecessor = event_to_node[pred_event];
+    }
+  }
+
+  // Fix up conflicting unlock g_predecessor edges (predecessor is in another thread).
+  for (auto& [unlock_node, pred_event] : unlocks_g_predecessor_fixups) {
+    if (event_to_node.contains(pred_event)) {
+      unlock_node->g_predecessor = event_to_node[pred_event];
+    }
+  }
+
   // Fix up join nodes to point to the actual end of the joined threads
   for (auto& join_node : joins_to_fix) {
     ThreadID joinee_tid = join_node->tid;
     // thread_tails[joinee_tid] now points to the end (or pending) of that thread
     const_cast<std::shared_ptr<const graph::Node>&>(join_node->joinee) = thread_tails[joinee_tid];
+  }
+
+  // Fix up join conflict sources using the source events now that event_to_node is complete
+  for (auto& [join_node, cb] : join_conflict_fixups) {
+    auto [evt_a, evt_b] = cb->source_events();
+    std::shared_ptr<graph::Node> src_a, src_b;
+    if (evt_a && event_to_node.count(evt_a)) src_a = event_to_node.at(evt_a);
+    if (evt_b && event_to_node.count(evt_b)) src_b = event_to_node.at(evt_b);
+    if (src_a || src_b)
+      const_cast<graph::Conflict&>(*join_node->conflict).sources = {src_a, src_b};
+  }
+
+  // Fix up unlock conflict sources using the source events now that event_to_node is complete
+  for (auto& [unlock_node, cb] : unlock_conflict_fixups) {
+    auto [evt_a, evt_b] = cb->source_events();
+    std::shared_ptr<graph::Node> src_a, src_b;
+    if (evt_a && event_to_node.count(evt_a)) src_a = event_to_node.at(evt_a);
+    if (evt_b && event_to_node.count(evt_b)) src_b = event_to_node.at(evt_b);
+    if (src_a || src_b)
+      const_cast<graph::Conflict&>(*unlock_node->conflict).sources = {src_a, src_b};
+  }
+
+  // Fix up conflicting volatile write sources (the two racing writes).
+  for (auto& [vwrite_node, cb] : volatile_write_conflict_fixups) {
+    auto [evt_a, evt_b] = cb->source_events();
+    std::shared_ptr<graph::Node> src_a, src_b;
+    if (evt_a && event_to_node.count(evt_a)) src_a = event_to_node.at(evt_a);
+    if (evt_b && event_to_node.count(evt_b)) src_b = event_to_node.at(evt_b);
+    if (src_a || src_b)
+      vwrite_node->conflict->sources = {src_a, src_b};
   }
 
   // Fix up read nodes to point to their source write events
@@ -784,8 +978,14 @@ graph::ExecutionGraph Interpreter::build_execution_graph_from_traces() {
 
 void Interpreter::print_execution_graph(const std::filesystem::path& output_path) {
   auto exec_graph = build_execution_graph_from_traces();
-  graph::GraphvizPrinter gv(output_path);
-  gv.visit(exec_graph.entry.get());
+  if (output_path.extension() == ".tex") {
+    bool linear_mode = dynamic_cast<linear::LinearMemoryModel*>(gctx.model.get()) != nullptr;
+    graph::TikzPrinter tikz;
+    tikz.print(exec_graph, output_path, linear_mode);
+  } else {
+    graph::GraphvizPrinter gv(output_path);
+    gv.visit(exec_graph.entry.get());
+  }
 }
 
 int interpret(const Node ast, const std::filesystem::path &output_path,

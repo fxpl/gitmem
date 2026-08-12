@@ -3,6 +3,8 @@
 #include "execution_state.hh"
 #include "graph.hh"
 #include "graphviz.hh"
+#include "tikz.hh"
+#include "linear/memory_model.hh"
 #include "lang.hh"
 #include "progress_status.hh"
 #include <trieste/trieste.h>

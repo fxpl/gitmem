@@ -1,0 +1,27 @@
+gitmem
+branching
+(top
+  {}
+  (file 44:examples/accept/semantics/linear/volatile.gm|0|26
+    (block |0|25
+      {
+        @v1 = =
+        vtmp$0 = =}
+      (stmt |0|7
+        (= |0|7
+          (volatile |0|3:@v1)
+          (expr |6|1
+            (const |6|1:1))))
+      (stmt |16|3
+        (= |16|3
+          (reg 6:vtmp$0)
+          (expr |16|3
+            (volatile |16|3:@v1))))
+      (stmt |9|16
+        (assert |9|16
+          (expr |16|8
+            (== |16|8
+              (expr |16|3
+                (reg 6:vtmp$0))
+              (expr |23|1
+                (const |23|1:1)))))))))

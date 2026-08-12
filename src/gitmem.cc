@@ -22,6 +22,12 @@ int main(int argc, char **argv) {
   std::filesystem::path output_path = "";
   app.add_option("-o,--output", output_path, "Path to the output file.");
 
+  std::string output_format = "dot";
+  app.add_option("--format", output_format,
+                 "Output format for execution graph: dot (default) or tikz.")
+      ->check(CLI::IsMember({"dot", "tikz"}))
+      ->type_name("FORMAT");
+
   bool verbose = false;
   app.add_flag("-v,--verbose", verbose,
                "Enable verbose output from the interpreter.");
@@ -103,8 +109,10 @@ int main(int argc, char **argv) {
       return 1;
     }
 
-    if (output_path.empty())
-      output_path = input_path.stem().replace_extension(".dot");
+    if (output_path.empty()) {
+      std::string ext = (output_format == "tikz") ? ".tex" : ".dot";
+      output_path = input_path.stem().replace_extension(ext);
+    }
 
     gitmem::verbose::out << "Output will be written to " << output_path << std::endl;
 

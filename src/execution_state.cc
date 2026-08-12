@@ -2,6 +2,7 @@
 
 #include "execution_state.hh"
 #include "memory_model.hh"
+#include "render.hh"
 
 namespace gitmem {
 
@@ -54,9 +55,26 @@ Lock& GlobalContext::get_lock(std::string lock) {
   return new_it->second;
 }
 
+Volatile& GlobalContext::get_volatile(std::string name) {
+  auto it = volatiles.find(name);
+  if (it != volatiles.end())
+    return it->second;
+
+  auto [new_it, inserted] = volatiles.emplace(
+    name,
+    Volatile{
+        .name = name,
+        .sync = model->make_volatile_state()
+    }
+  );
+
+  return new_it->second;
+}
+
 bool GlobalContext::operator==(const GlobalContext &other) const {
   if (threads.size() != other.threads.size() ||
-      locks.size() != other.locks.size())
+      locks.size() != other.locks.size() ||
+      volatiles.size() != other.volatiles.size())
     return false;
 
   // Threads may have been spawned in a different order, so we
@@ -76,6 +94,16 @@ bool GlobalContext::operator==(const GlobalContext &other) const {
     if (lock.owner != other_lock.owner)
       return false;
   }
+
+  // A volatile carries an observable value (unlike a lock), so compare it: two
+  // states differing only in an as-yet-unread volatile must stay distinct, or
+  // exploration could prune a branch that later diverges on the read.
+  for (auto &[name, vol] : volatiles) {
+    if (!other.volatiles.contains(name))
+      return false;
+    if (vol.value != other.volatiles.at(name).value)
+      return false;
+  }
   return true;
 }
 
@@ -92,9 +120,8 @@ std::ostream& operator<<(std::ostream& os, const Thread& thread) {
       os << "   ";
     }
 
-    // This should be somewhere else
     // Fix indentation of nested blocks
-    auto s = std::string(stmt->location().view());
+    auto s = lang::render(stmt);
     s = std::regex_replace(s, std::regex("\n"), "\n   ");
     os << s << ";" << std::endl;
 

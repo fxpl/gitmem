@@ -14,8 +14,11 @@ namespace linear {
 class LinearMemoryModel final : public MemoryModel {
   GlobalVersionStore _global_store;
 
-  std::optional<LinearConflict> push(LocalVersionStore &local);
+  std::optional<LinearConflict> pullpush(LocalVersionStore &local);
   std::optional<LinearConflict> pull(LocalVersionStore &local);
+  // push staged changes without a conflict check; only safe when the base is
+  // already current (e.g. immediately after a pull).
+  void push(LocalVersionStore &local);
 
 public:
   ~LinearMemoryModel() override;
@@ -42,17 +45,30 @@ public:
   std::optional<std::shared_ptr<ConflictBase>>
   on_unlock(ThreadContext &thread, Lock &lock) override;
 
+  std::optional<std::shared_ptr<ConflictBase>>
+  on_volatile_read(ThreadContext &thread, Volatile &v) override;
+
+  std::optional<std::shared_ptr<ConflictBase>>
+  on_volatile_write(ThreadContext &thread, Volatile &v,
+                    ValueWithSource value) override;
+
   std::ostream &print(std::ostream &os) const override;
 
   std::string build_revision_graph_dot(const std::vector<const ThreadSyncState*>& thread_states) const override;
 
   bool is_scheduling_point(SyncOperation op) const override;
 
+  bool uses_global_lock_ordering() const override { return true; }
+
   std::unique_ptr<ThreadSyncState> make_thread_state(ThreadID tid) const override {
     return std::make_unique<LocalVersionStore>(tid);
   }
 
   std::unique_ptr<LockSyncState> make_lock_state() const override {
+    return nullptr;
+  }
+
+  std::unique_ptr<VolatileSyncState> make_volatile_state() const override {
     return nullptr;
   }
 };

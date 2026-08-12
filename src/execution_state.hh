@@ -64,13 +64,32 @@ struct Lock {
   std::unique_ptr<LockSyncState> sync;
 };
 
+// A volatile variable is a synchronising object like a lock: an acquire (read)
+// synchronises-with the previous release (write). Its value lives here on the
+// object (not in the versioned store) -- volatiles are race-free, so their
+// value is not versioned heap, the same way lock state is not versioned. The
+// synchronisation of *ordinary* memory still flows through the model; per-model
+// bookkeeping (e.g. the branching release commit) lives in `sync`.
+struct Volatile {
+  std::string name;
+  std::optional<ValueWithSource> value = std::nullopt;
+  std::unique_ptr<VolatileSyncState> sync;
+};
+
 struct GlobalContext {
   // Execution state
   std::deque<Thread> threads;
 private:
   std::unordered_map<std::string, Lock> locks;
+  std::unordered_map<std::string, Volatile> volatiles;
 public:
   Lock& get_lock(std::string);
+  Volatile& get_volatile(std::string);
+
+  // Most recent unlock event across ALL lock variables (used by the linear
+  // memory model so that lock(l2) gets an ordered_after edge to the last
+  // unlock(l1) that pushed to g, even though l2 was never unlocked before).
+  std::shared_ptr<Event> last_g_push_event = nullptr;
 
   // AST evaluation cache
   lang::NodeMap<size_t> cache;

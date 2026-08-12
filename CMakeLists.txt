@@ -38,6 +38,7 @@ add_executable(gitmem
   src/passes/expressions.cc
   src/passes/statements.cc
   src/passes/check_refs.cc
+  src/passes/hoist_volatiles.cc
   src/passes/branching.cc
   src/linear/memory_model.cc
   src/linear/version_store.cc
@@ -49,6 +50,7 @@ add_executable(gitmem
   src/debugger.cc
   src/model_checker.cc
   src/graphviz.cc
+  src/tikz.cc
 )
 
 add_executable(gitmem_trieste
@@ -58,6 +60,7 @@ add_executable(gitmem_trieste
   src/passes/expressions.cc
   src/passes/statements.cc
   src/passes/check_refs.cc
+  src/passes/hoist_volatiles.cc
   src/passes/branching.cc
 )
 

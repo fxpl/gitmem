@@ -132,6 +132,25 @@ public:
   }
 };
 
+// The current released commit of a volatile location -- what each acquire
+// (read) synchronises with, and what each new release (write) chains onto.
+class VolatileState : public VolatileSyncState {
+public:
+  ~VolatileState() = default;
+
+  std::shared_ptr<const branching::Commit> commit;
+
+  inline std::ostream &print(std::ostream &os) const override {
+    os << "VolatileState{commit=";
+    if (commit)
+      os << commit->id;
+    else
+      os << "empty";
+    os << "}";
+    return os;
+  }
+};
+
 } // namespace branching
 
 } // namespace gitmem

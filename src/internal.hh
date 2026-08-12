@@ -11,11 +11,12 @@ Parse parser();
 PassDef expressions();
 PassDef statements();
 PassDef check_refs();
+PassDef hoist_volatiles();
 PassDef branching();
 
-inline const auto parse_token = Reg | Var | Const | Nop | Brace | Paren |
-                                Spawn | Join | Lock | Unlock | Assert | If |
-                                Else;
+inline const auto parse_token = Reg | Var | Volatile | Const | Nop | Brace |
+                                Paren | Spawn | Join | Lock | Unlock | Assert |
+                                If | Else;
 
 inline const auto parse_op = Group | Assign | Eq | Neq | Add | Semi;
 
@@ -46,7 +47,7 @@ inline const auto parse_op = Group | Assign | Eq | Neq | Add | Semi;
   inline const wf::Wellformed expressions_wf =
     parser_wf
     | (File <<= ~expressions_op)
-    | (Expr <<= (Reg | Var | Const | Spawn | Eq | Neq | Add))
+    | (Expr <<= (Reg | Var | Volatile | Const | Spawn | Eq | Neq | Add))
     | (Brace <<= ~expressions_op)
     | (Paren <<= ~expressions_op)
     | (Semi <<= (expressions_op - Semi)++[1])
@@ -70,7 +71,7 @@ inline const auto parse_op = Group | Assign | Eq | Neq | Add | Semi;
     | (Spawn <<= Block)
     | (Block <<= Stmt++[1])
     | (Stmt <<= (Nop | Assign | Join | Lock | Unlock | Assert | If))
-    | (Assign <<= ((LVal >>= (Reg | Var)) * Expr))[LVal]
+    | (Assign <<= ((LVal >>= (Reg | Var | Volatile)) * Expr))[LVal]
     | (Join <<= Expr)
     | (Lock <<= Var)
     | (Unlock <<= Var)

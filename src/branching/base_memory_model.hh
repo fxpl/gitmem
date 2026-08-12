@@ -42,6 +42,13 @@ public:
   std::optional<std::shared_ptr<ConflictBase>>
   on_unlock(ThreadContext &thread, Lock &lock) override;
 
+  std::optional<std::shared_ptr<ConflictBase>>
+  on_volatile_read(ThreadContext &thread, Volatile &v) override;
+
+  std::optional<std::shared_ptr<ConflictBase>>
+  on_volatile_write(ThreadContext &thread, Volatile &v,
+                    ValueWithSource value) override;
+
   std::ostream &print(std::ostream &os) const override;
 
   std::string build_revision_graph_dot(const std::vector<const ThreadSyncState*>& thread_states) const override;
@@ -50,6 +57,10 @@ public:
 
   std::unique_ptr<LockSyncState> make_lock_state() const override {
     return std::make_unique<LockState>();
+  }
+
+  std::unique_ptr<VolatileSyncState> make_volatile_state() const override {
+    return std::make_unique<VolatileState>();
   }
 };
 

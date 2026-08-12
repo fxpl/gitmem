@@ -19,6 +19,13 @@ std::optional<Conflict> LazyLocalVersionStore::merge_with_commit(const std::shar
   if (head == commit)
     return std::nullopt;
 
+  // Fast-forward: if the incoming commit is already in our history there is
+  // nothing to merge (and a redundant merge commit's extra parent edge can
+  // mislead ancestor queries).
+  std::unordered_map<std::shared_ptr<const Commit>, bool> ff_memo;
+  if (can_reach(head, commit, ff_memo))
+    return std::nullopt;
+
   // Create merge commit (no changes itself)
   auto merge_commit = std::make_shared<const Commit>(
     Commit{
@@ -130,17 +137,21 @@ BranchingReadResult LazyLocalVersionStore::get_committed(std::string var) const 
   auto get_loc = [](const ValueWithSource& vws) -> FileLocation {
     if (!vws.source_event)
       throw std::logic_error("missing source event for conflicting write");
-    auto* we = std::get_if<WriteEvent>(&vws.source_event->data);
-    if (!we)
-      throw std::logic_error("conflicting source event is not a WriteEvent");
-    return we->location;
+    if (auto* we = std::get_if<WriteEvent>(&vws.source_event->data))
+      return we->location;
+    // Volatile writes can race (write-write with no happens-before).
+    if (auto* vwe = std::get_if<VolatileWriteEvent>(&vws.source_event->data))
+      return vwe->location;
+    throw std::logic_error("conflicting source event is not a write");
   };
   auto a = writers[0]->id;
   auto b = writers[1]->id;
   auto result = BranchingReadResult(Conflict(
     var,
     {a, get_loc(writers[0]->changes.at(var))},
-    {b, get_loc(writers[1]->changes.at(var))}));
+    {b, get_loc(writers[1]->changes.at(var))},
+    writers[0]->changes.at(var).source_event,
+    writers[1]->changes.at(var).source_event));
   read_cache[var] = result;
   return result;
 }

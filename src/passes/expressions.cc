@@ -7,12 +7,12 @@ namespace lang {
 using namespace trieste;
 
 PassDef expressions() {
-  auto Operand = T(Expr) << (T(Reg, Var, Const, Add));
+  auto Operand = T(Expr) << (T(Reg, Volatile, Var, Const, Add));
   return {"expressions",
           expressions_wf,
           dir::bottomup,
           {
-              --In(Expr) * T(Const, Reg, Var)[Expr] >>
+              --In(Expr) * T(Const, Reg, Volatile, Var)[Expr] >>
                   [](Match &_) -> Node { return Expr << _(Expr); },
 
               --In(Expr) * T(Spawn)[Spawn] << (T(Brace) * End) >>

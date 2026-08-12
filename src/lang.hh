@@ -12,6 +12,7 @@ Reader reader();
 // Variables
 inline const auto Reg = TokenDef("reg", flag::print);
 inline const auto Var = TokenDef("var", flag::print);
+inline const auto Volatile = TokenDef("volatile", flag::print);
 
 // Constants
 inline const auto Const = TokenDef("const", flag::print);
@@ -60,13 +61,13 @@ inline const auto Then = TokenDef("then");
     (Top <<= File)
   | (File <<= Block)
   | (Block <<= Stmt++[1])
-  | (Expr <<= (Reg | Var | Const | Spawn | Eq | Neq | Add))
+  | (Expr <<= (Reg | Var | Volatile | Const | Spawn | Eq | Neq | Add))
   | (Spawn <<= Block)
   | (Eq <<= (Lhs >>= Expr) * (Rhs >>= Expr))
   | (Neq <<= (Lhs >>= Expr) * (Rhs >>= Expr))
   | (Add <<= Expr++[2])
   | (Stmt <<= (Nop | Assign | Join | Lock | Unlock | Assert | If))
-  | (Assign <<= ((LVal >>= (Reg | Var)) * Expr))[LVal]
+  | (Assign <<= ((LVal >>= (Reg | Var | Volatile)) * Expr))[LVal]
   | (Join <<= Expr)
   | (Lock <<= Var)
   | (Unlock <<= Var)

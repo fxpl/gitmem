@@ -2,6 +2,7 @@
 #include "debug.hh"
 #include "thread_trace.hh"
 
+#include <queue>
 #include <unordered_set>
 
 namespace gitmem {
@@ -119,6 +120,13 @@ std::optional<Conflict> EagerLocalVersionStore::merge_with_commit(const std::sha
   if (head == commit)
     return std::nullopt;
 
+  // Fast-forward: if the incoming commit is already in our history there is
+  // nothing to merge. Building a merge commit here would add a redundant parent
+  // edge straight to an old ancestor, which can mislead ancestor queries.
+  std::unordered_map<std::shared_ptr<const Commit>, bool> ff_memo;
+  if (can_reach(head, commit, ff_memo))
+    return std::nullopt;
+
   // Find lowest common ancestor of the two heads
   std::shared_ptr<const Commit> lca = find_lowest_common_ancestor(head, commit);
   verbose::out << "found lca of "
@@ -144,10 +152,12 @@ std::optional<Conflict> EagerLocalVersionStore::merge_with_commit(const std::sha
     auto it = c->changes.find(obj);
     if (it == c->changes.end() || !it->second.source_event)
       throw std::logic_error("missing source event for conflicting write");
-    auto* we = std::get_if<WriteEvent>(&it->second.source_event->data);
-    if (!we)
-      throw std::logic_error("conflicting source event is not a WriteEvent");
-    return we->location;
+    if (auto* we = std::get_if<WriteEvent>(&it->second.source_event->data))
+      return we->location;
+    // Volatile writes can race (write-write with no happens-before).
+    if (auto* vwe = std::get_if<VolatileWriteEvent>(&it->second.source_event->data))
+      return vwe->location;
+    throw std::logic_error("conflicting source event is not a write");
   };
   std::optional<Conflict> conflict;
   for (const auto& [obj, commit_a] : branch_a) {
@@ -156,7 +166,9 @@ std::optional<Conflict> EagerLocalVersionStore::merge_with_commit(const std::sha
       conflict = Conflict(
         obj,
         {commit_a->id, get_loc(commit_a, obj)},
-        {it->second->id, get_loc(it->second, obj)});
+        {it->second->id, get_loc(it->second, obj)},
+        commit_a->changes.at(obj).source_event,
+        it->second->changes.at(obj).source_event);
       break;
     }
   }

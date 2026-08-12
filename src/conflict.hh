@@ -1,10 +1,13 @@
 #pragma once
 
 #include <iostream>
+#include <memory>
 #include <optional>
 #include <string>
 
 namespace gitmem {
+
+struct Event; // forward declaration — full definition in thread_trace.hh
 
 struct FileLocation {
   std::string file;
@@ -34,6 +37,9 @@ struct ConflictBase {
   virtual std::ostream &print(std::ostream &os) const = 0;
   virtual std::string object_name() const = 0;
   virtual std::pair<FileLocation, FileLocation> source_locations() const = 0;
+  virtual std::pair<std::shared_ptr<Event>, std::shared_ptr<Event>> source_events() const {
+    return {nullptr, nullptr};
+  }
   friend std::ostream &operator<<(std::ostream &os,
                                   const ConflictBase &conflict) {
     return conflict.print(os);
@@ -46,11 +52,16 @@ struct Conflict : ConflictBase {
   std::string var;
   std::pair<VersionID, FileLocation> version_a;
   std::pair<VersionID, FileLocation> version_b;
+  std::shared_ptr<Event> source_event_a;
+  std::shared_ptr<Event> source_event_b;
 
   Conflict(std::string var,
            std::pair<VersionID, FileLocation> version_a,
-           std::pair<VersionID, FileLocation> version_b)
-      : var(std::move(var)), version_a(std::move(version_a)), version_b(std::move(version_b)) {}
+           std::pair<VersionID, FileLocation> version_b,
+           std::shared_ptr<Event> source_event_a = nullptr,
+           std::shared_ptr<Event> source_event_b = nullptr)
+      : var(std::move(var)), version_a(std::move(version_a)), version_b(std::move(version_b)),
+        source_event_a(std::move(source_event_a)), source_event_b(std::move(source_event_b)) {}
 
   std::ostream &print(std::ostream &os) const override;
 
@@ -60,6 +71,10 @@ struct Conflict : ConflictBase {
 
   std::pair<FileLocation, FileLocation> source_locations() const override {
     return std::make_pair(version_a.second, version_b.second);
+  }
+
+  std::pair<std::shared_ptr<Event>, std::shared_ptr<Event>> source_events() const override {
+    return {source_event_a, source_event_b};
   }
 
   bool operator==(const Conflict &other) const {

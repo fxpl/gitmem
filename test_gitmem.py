@@ -1,4 +1,5 @@
 import os
+import re
 import subprocess
 import sys
 import argparse
@@ -11,6 +12,32 @@ SYNC_KINDS = {
   "branching-eager": {"sync": "branching", "branching_mode": "eager"},
   "branching-lazy": {"sync": "branching", "branching_mode": "lazy"},
 }
+
+# A test's expected outcome defaults to its accept/reject directory, but a model
+# may legitimately diverge -- e.g. lazy branching only reports a conflict on a
+# variable that is actually read, so it accepts unread races that eager/linear
+# reject. A test can override the expectation for specific models with a comment
+# directive (the program itself is untouched):
+#
+#   // expect branching-lazy: accept
+#
+# The model name must match a key in SYNC_KINDS; the outcome is accept|reject.
+EXPECT_RE = re.compile(
+  r"//\s*expect\s+([A-Za-z0-9_-]+)\s*[:=]\s*(accept|reject)\b",
+  re.IGNORECASE,
+)
+
+def parse_expectation_overrides(file_path):
+  overrides = {}
+  try:
+    with open(file_path, "r") as f:
+      for line in f:
+        m = EXPECT_RE.search(line)
+        if m and m.group(1) in SYNC_KINDS:
+          overrides[m.group(1)] = (m.group(2).lower() == "accept")
+  except (OSError, UnicodeDecodeError):
+    pass
+  return overrides
 
 def supports_color():
   return sys.stdout.isatty() and os.getenv("NO_COLOR") is None
@@ -26,7 +53,7 @@ def green(text):
 def red(text):
   return color(text, "31")
 
-def run_gitmem_test(gitmem_path, file_path, should_accept, sync_kind):
+def run_gitmem_test(gitmem_path, file_path, should_accept, sync_kind, overridden=False):
   sync_config = SYNC_KINDS[sync_kind]
 
   cmd = [
@@ -58,7 +85,9 @@ def run_gitmem_test(gitmem_path, file_path, should_accept, sync_kind):
     sys.exit(1)
 
   status = green("PASS") if accepted else red("FAIL")
-  print(f"[{status}] {file_path} [{sync_kind}] (exit code: {result.returncode})")
+  expected = "accept" if should_accept else "reject"
+  note = f" (override: expect {expected})" if overridden else ""
+  print(f"[{status}] {file_path} [{sync_kind}]{note} (exit code: {result.returncode})")
   return accepted
 
 def main():
@@ -140,11 +169,15 @@ def main():
             total_tests += 1
             results[expectation][category][sync_kind]["total"] += 1
 
+            overrides = parse_expectation_overrides(file_path)
+            effective_accept = overrides.get(sync_kind, should_accept)
+
             passed = run_gitmem_test(
               gitmem_path,
               file_path,
-              should_accept,
-              sync_kind
+              effective_accept,
+              sync_kind,
+              overridden=(sync_kind in overrides)
             )
 
             if not passed:
